@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -50,39 +50,6 @@ class Ticket(Base):
 
     __table_args__ = (
         Index("idx_tickets_brand_status", "brand_id", "status", "updated_at"),
-    )
-
-
-class Job(Base):
-    __tablename__ = "jobs"
-
-    job_id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-    )
-    ticket_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "tickets.ticket_id",
-            onupdate="CASCADE",
-            ondelete="CASCADE",
-        ),
-        nullable=False,
-    )
-    job_type: Mapped[str] = mapped_column(String, nullable=False)
-    payload_json: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String, nullable=False)  # queued|processing|done|failed|dead
-    run_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime())
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("ticket_id", "job_type", "payload_json"),
-        Index("idx_jobs_status_runat", "status", "run_at"),
-        Index("idx_jobs_ticket", "ticket_id"),
-        Index("idx_jobs_visibility", "visibility_deadline"),
     )
 
 

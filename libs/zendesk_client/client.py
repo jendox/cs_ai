@@ -41,6 +41,12 @@ class ZendeskClient:
         self.review_mode = settings.review_mode
         self.logger = logging.getLogger("zendesk_client")
 
+    async def test_get_tickets(self) -> list[Ticket]:
+        url = "/tickets/recent.json"
+        response = await self.http_client.get(url)
+        tickets = response.json().get("tickets")
+        return [Ticket(**ticket) for ticket in tickets]
+
     async def get_ticket_by_id(self, ticket_id: int) -> Ticket:
         url = f"/tickets/{ticket_id}.json"
         response = await self.http_client.get(url)
@@ -110,6 +116,7 @@ class ZendeskClient:
         brand: Brand | None = None,
         statuses: set[TicketStatus] | None = None,
     ) -> AsyncGenerator[Ticket, None]:
+        self.logger.info(f"iter_tickets:start_time: {updated_after}")
         start_time = int(updated_after.timestamp())
         async for batch_tickets in self._iter_incremental_tickets(start_time):
             for raw_ticket in batch_tickets:

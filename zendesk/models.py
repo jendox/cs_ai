@@ -42,38 +42,11 @@ def validate_source_id(value: datetime | str) -> str:
     return value
 
 
-class JobStatus(str, Enum):
-    QUEUED = "queued"
-    PROCESSING = "processing"
-    DONE = "done"
-    FAILED = "failed"
-    DEAD = "dead"
-
-
-class JobType(str, Enum):
-    INITIAL_REPLY = "initial_reply"
-    USER_REPLY = "user_reply"
-    AGENT_DIRECTIVE = "agent_directive"
-    TICKET_CLOSED = "ticket_closed"
-
-
-class Job(BaseModel):
-    ticket_id: int
-    job_type: JobType = JobType.INITIAL_REPLY
-    payload_json: OptionalStr
-    status: JobStatus = JobStatus.QUEUED
-    run_at: OptionalDatetime
-    attempts: int = 0
-    visibility_deadline: OptionalDatetime
-    created_at: datetime = datetime_utils.utcnow()
-    updated_at: datetime = datetime_utils.utcnow()
-
-
 class Event(BaseModel):
-    event_key: str
+    event_key: OptionalStr
     ticket_id: OptionalInt
     source_type: EventSourceType
-    source_id: Annotated[str, BeforeValidator(validate_source_id)]
+    source_id: Annotated[OptionalStr, BeforeValidator(validate_source_id)]
     kind: EventKind
     author_role: EventAuthorRole | None = None
     author_id: OptionalInt

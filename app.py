@@ -5,20 +5,34 @@ from dotenv import load_dotenv
 
 from libs.zendesk_client.client import ZendeskSettings, create_zendesk_client
 from libs.zendesk_client.models import Brand
-from zendesk_poller import Poller
+from zendesk import Poller
 
 LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 logger = logging.getLogger(__name__)
 
 
+async def test_method():
+    async with create_zendesk_client(ZendeskSettings.load()) as client:
+        tickets = await client.test_get_tickets()
+        print(tickets)
+
+    raise RuntimeError()
+
+
 async def main():
     # ticket 109793
     load_dotenv()
+    # await test_method()
     try:
         async with create_zendesk_client(ZendeskSettings.load()) as client:
-            poller = Poller(client, Brand.HIPCRATE)
-            await poller.start_polling()
+            poller = Poller(client, Brand.SUPERSELF)
+            # worker = Worker(client)
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(poller.start)
+                # tg.start_soon(worker.start)
+
     except anyio.get_cancelled_exc_class():
         logger.info("Прервано пользователем")
     except Exception as exc:

@@ -1,7 +1,7 @@
 import hashlib
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, select, update
+from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,13 +9,12 @@ import datetime_utils
 from db.models import (
     Checkpoint as CheckpointEntity,
     Event as EventEntity,
-    Job as JobEntity,
     Lock as LockEntity,
     OurPost as OurPostEntity,
     Ticket as TicketEntity,
 )
 from libs.zendesk_client.models import Ticket
-from zendesk_poller.models import Event, Job, JobStatus
+from zendesk_poller.models import Event
 
 
 class TicketNotFound(Exception): ...
@@ -33,12 +32,30 @@ class Repository:
         self._session = session
 
     # --- Tickets ---
-    async def upsert_ticket(
+    async def upsert_ticket_and_check_new(
         self,
         ticket: Ticket,
         observing: bool = True,
         last_seen_at: datetime | None = None,
-    ):
+    ) -> bool:
+        """
+        Upsert a ticket into the database.
+
+        Performs an INSERT or UPDATE operation for the given ticket. If a ticket with the same ID
+        already exists, it will be updated. Otherwise, a new ticket will be inserted.
+
+        Args:
+            ticket: The Ticket object to upsert
+            observing: Whether the ticket is being observed (default: True)
+            last_seen_at: Timestamp when the ticket was last seen. If None, uses current UTC time
+
+        Returns:
+            bool: True if the ticket was newly inserted, False if an existing ticket was updated
+        """
+        exists_stmt = select(TicketEntity.ticket_id).where(TicketEntity.ticket_id == ticket.id)
+        exists_result = await self._session.execute(exists_stmt)
+        exists = exists_result.scalar_one_or_none() is not None
+
         last_seen_at = last_seen_at or datetime_utils.utcnow()
         stmt = sqlite_insert(TicketEntity).values(
             ticket_id=ticket.id,
@@ -58,18 +75,22 @@ class Repository:
                 "last_seen_at": last_seen_at,
             },
         )
-
         await self._session.execute(stmt)
+        return not exists
+
+    async def get_ticket_by_id(self, ticket_id: int) -> TicketEntity:
+        stmt = (
+            select(TicketEntity)
+            .where(TicketEntity.ticket_id == ticket_id)
+        )
+        ticket = await self._session.scalar(stmt)
+        if ticket is None:
+            raise TicketNotFound(f"Ticket {ticket_id} doesn't exist.")
+        return ticket
 
     async def get_ticket_status(self, ticket_id: int) -> str:
-        result = await self._session.execute(
-            select(TicketEntity.status)
-            .where(TicketEntity.ticket_id == ticket_id),
-        )
-        status = result.scalar_one_or_none()
-        if status is None:
-            raise TicketNotFound(f"Ticket {ticket_id} doesn't exist")
-        return status
+        ticket = await self.get_ticket_by_id(ticket_id)
+        return ticket.status
 
     # --- Events ---
     async def insert_event(self, event: Event) -> bool:
@@ -80,109 +101,6 @@ class Repository:
         )
         result = await self._session.execute(stmt)
         return result.rowcount == 1
-
-    # --- Jobs ---
-    async def enqueue_job(
-        self,
-        job: Job,
-    ) -> bool:
-        stmt = (
-            sqlite_insert(JobEntity)
-            .values(**job.model_dump()).prefix_with("OR IGNORE")
-        )
-        result = await self._session.execute(stmt)
-        return result.rowcount == 1
-
-    async def claim_job(self, *, visibility_timeout_seconds: int = 300) -> JobEntity | None:
-        # 1) найти подходящую job_id
-        now = datetime_utils.utcnow()
-        result = await self._session.execute(
-            select(JobEntity.job_id)
-            .where(
-                and_(
-                    JobEntity.status == JobStatus.QUEUED,
-                    (JobEntity.run_at.is_(None)) | (JobEntity.run_at <= now),
-                ),
-            )
-            .order_by(JobEntity.created_at).limit(1),
-        )
-        row = result.first()
-        if not row:
-            return None
-
-        job_id = row[0]
-        vis_deadline = now + timedelta(seconds=visibility_timeout_seconds)
-
-        # 2) атомарно перевести в processing (защита от гонки)
-        result_2 = await self._session.execute(
-            update(JobEntity)
-            .where(
-                and_(JobEntity.job_id == job_id, JobEntity.status == JobStatus.QUEUED),
-            )
-            .values(
-                status=JobStatus.PROCESSING, visibility_deadline=vis_deadline, updated_at=now,
-            ),
-        )
-        if result_2.rowcount == 0:
-            return None
-
-        # 3) вернуть полную сущность
-        result_3 = await self._session.execute(
-            select(JobEntity).where(JobEntity.job_id == job_id),
-        )
-        return result_3.scalar_one_or_none()
-
-    async def complete_job(self, job_id: int):
-        await self._session.execute(
-            update(JobEntity)
-            .where(JobEntity.job_id == job_id)
-            .values(
-                status=JobStatus.DONE,
-                visibility_deadline=None,
-                updated_at=datetime_utils.utcnow(),
-            ),
-        )
-
-    async def fail_job(self, job_id: int, *, delay_seconds: int = 60, max_attempts: int = 5):
-        now = datetime_utils.utcnow()
-        result = await self._session.execute(
-            select(JobEntity.attempts)
-            .where(JobEntity.job_id == job_id),
-        )
-        attempts = (result.scalar_one_or_none() or 0) + 1
-        status = JobStatus.DEAD if attempts >= max_attempts else JobStatus.QUEUED
-        next_run = None
-        if status == JobStatus.QUEUED:
-            next_run = now + timedelta(seconds=delay_seconds * (2 ** (attempts - 1)))
-
-        await self._session.execute(
-            update(JobEntity)
-            .where(JobEntity.job_id == job_id)
-            .values(
-                status=status,
-                attempts=attempts,
-                run_at=next_run,
-                visibility_deadline=None,
-                updated_at=now,
-            ),
-        )
-
-    async def requeue_timed_out(self) -> int:
-        now = datetime_utils.utcnow()
-        result = await self._session.execute(
-            update(JobEntity)
-            .where(and_(
-                JobEntity.status == JobStatus.PROCESSING,
-                JobEntity.visibility_deadline.is_not(None),
-                JobEntity.visibility_deadline <= now),
-            )
-            .values(
-                status=JobStatus.QUEUED,
-                visibility_deadline=None,
-                updated_at=now,
-            ),
-        )
-        return result.rowcount or 0
 
     # --- Our posts ---
     async def record_our_post(self, *, ticket_id: int, body_hash: str, channel: str = "private") -> bool:

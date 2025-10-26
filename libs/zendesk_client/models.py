@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, TypeAlias
+from typing import Annotated, Any, TypeAlias
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
@@ -20,13 +20,20 @@ OptionalDatetime: TypeAlias = Annotated[datetime | None, Field(default=None)]
 OptionalIntList: TypeAlias = Annotated[list[int] | None, Field(default=None)]
 OptionalStrList: TypeAlias = Annotated[list[str] | None, Field(default=None)]
 
-AGENT_IDS = {372174069320}
+AGENT_IDS = {
+    372174069320,
+    # test
+    23063989634716,  # Anna
+}
 
 
 class Brand(int, Enum):
-    CLEOCORA = 13102068919196
-    SMARTPARTS = 360001509619
-    HIPCRATE = 360001148379
+    # CLEOCORA = 13102068919196
+    # SMARTPARTS = 360001509619
+    # SUPERSELF = 360001148379
+    # TEST
+    SUPERSELF = 23064017794844
+    SMARTPARTS = 23063999037340
 
 
 class TicketStatus(str, Enum):
@@ -36,6 +43,7 @@ class TicketStatus(str, Enum):
     HOLD = "HOLD"
     SOLVED = "SOLVED"
     CLOSED = "CLOSED"
+    DELETED = "DELETED"
 
     @classmethod
     def active(cls) -> set["TicketStatus"]:
@@ -142,4 +150,11 @@ class Ticket(BaseModel):
             ensure_ascii=True,
             exclude_none=True,
             by_alias=True,
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        return self.model_dump(
+            exclude_none=True,
+            by_alias=True,
+            mode="json",
         )
