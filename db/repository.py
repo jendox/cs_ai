@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import and_, delete, select
@@ -14,7 +15,7 @@ from db.models import (
     Ticket as TicketEntity,
 )
 from libs.zendesk_client.models import Ticket
-from zendesk_poller.models import Event
+from zendesk.models import Event
 
 
 class TicketNotFound(Exception): ...
@@ -30,6 +31,7 @@ class AcquireLockError(RuntimeError):
 class Repository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+        self.logger = logging.getLogger("db.repository")
 
     # --- Tickets ---
     async def upsert_ticket_and_check_new(
@@ -97,7 +99,7 @@ class Repository:
         stmt = (
             sqlite_insert(EventEntity)
             .values(**event.model_dump())
-            .prefix_with("OR IGNORE")
+            .on_conflict_do_nothing(index_elements=[EventEntity.event_key.key])
         )
         result = await self._session.execute(stmt)
         return result.rowcount == 1
@@ -137,6 +139,7 @@ class Repository:
             )
         )
         await self._session.execute(stmt)
+        self.logger.debug("checkpoint.set", extra={"name": name, "value": str(value)})
 
     # --- Locks ---
     async def acquire_lock(
@@ -144,7 +147,7 @@ class Repository:
         *,
         name: str,
         holder: str,
-        ttl_seconds: int = 90,
+        ttl_seconds: int,
     ) -> None:
         now = datetime_utils.utcnow()
         until = now + timedelta(seconds=ttl_seconds)
@@ -165,6 +168,7 @@ class Repository:
         current = result.scalar_one_or_none()
         if current != holder:
             raise AcquireLockError(name, current)
+        self.logger.debug("lock.acquired", extra={"name": name, "holder": holder})
 
     async def release_lock(self, *, name: str, holder: str):
         stmt = delete(LockEntity).where(
@@ -174,4 +178,4 @@ class Repository:
             ),
         )
         await self._session.execute(stmt)
-        # await self._session.execute(text("DELETE FROM locks WHERE name=:n AND holder=:h"), {"n": name, "h": holder})
+        self.logger.debug("lock.released", extra={"name": name, "holder": holder})

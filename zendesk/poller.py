@@ -1,6 +1,6 @@
 import logging
 import os
-import re
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 
@@ -13,10 +13,9 @@ from jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, Tic
 from jobs.rabbitmq_queue import RabbitJobQueue
 from libs.zendesk_client.client import ZendeskClient
 from libs.zendesk_client.models import Brand, Ticket, TicketStatus
+from logs.filters import log_ctx
 
 from .models import Event, EventAuthorRole, EventKind, EventSourceType
-
-ROBOT_TAG_RE = re.compile(r"@robot(\b|:)", re.IGNORECASE)
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5
 # запрос должен быть старше чем now-60s (400 StartTimeToRecent)
@@ -50,6 +49,7 @@ class Poller:
     async def _bootstrap_if_needed(self, cp_tickets: str, cp_events: str) -> tuple[datetime, datetime]:
         tickets_from = await self.repo.get_checkpoint(cp_tickets)
         if not tickets_from:
+            # Только тикеты, обновлённые после запуска — для "холодного старта"
             tickets_from = _get_new_checkpoint(TICKETS_SAFETY_BACKSHIFT_MIN)
             await self.repo.set_checkpoint(cp_tickets, tickets_from)
 
@@ -61,12 +61,14 @@ class Poller:
         return tickets_from, events_from
 
     async def _process_open_tickets(self, updated_after: datetime) -> datetime:
+        lastest_seen = updated_after
         async for ticket in self.client.iter_tickets(updated_after, self.brand, TicketStatus.active()):
-            if await self.repo.upsert_ticket_and_check_new(
+            is_new = await self.repo.upsert_ticket_and_check_new(
                 ticket=ticket,
                 observing=True,
                 last_seen_at=datetime_utils.utcnow(),
-            ):
+            )
+            if is_new:
                 await self.job_queue.publish(
                     JobType.INITIAL_REPLY,
                     message=InitialReplyMessage(
@@ -74,9 +76,13 @@ class Poller:
                     ).model_dump(mode="json"),
                     brand=self.brand,
                 )
-                self.logger.debug(f"Published job: {JobType.INITIAL_REPLY.value} - ticket_id: {ticket.id}")
-                updated_after = ticket.created_at
-        return updated_after
+                self.logger.debug(
+                    "job.created", extra={"ticket_id": ticket.id, "job_type": JobType.INITIAL_REPLY.value},
+                )
+            pivot = ticket.updated_at or ticket.created_at
+            if pivot:
+                lastest_seen = max(lastest_seen, pivot)
+        return lastest_seen
 
     async def _create_status_event(self, ticket: Ticket) -> Event:
         prev_status = await self.repo.get_ticket_status(ticket.id)
@@ -117,11 +123,11 @@ class Poller:
             try:
                 # Сначала проходимся по измененным статусам
                 event = await self._create_status_event(updated_ticket)
-            except TicketNotFound as error:
-                self.logger.warning(error)
-                continue
-            except NoStatusChange as exc:
-                self.logger.debug(exc)
+            except TicketNotFound:
+                self.logger.warning("ticket.not_found", extra={"ticket_id": updated_ticket.id})
+                continue  # we only track tickets created after poller started
+            except NoStatusChange:
+                self.logger.debug("ticket.status_unchanged", extra={"ticket_id": updated_ticket.id})
             else:
                 yield event, updated_ticket
             # Теперь получаем добавившиеся комментарии, если они есть
@@ -185,7 +191,14 @@ class Poller:
         async for event, ticket in self._iter_events(updated_after):
             inserted = await self.repo.insert_event(event)
             if inserted:
-                self.logger.debug(f"New event created: {event.kind} - author: {event.author_role}")
+                self.logger.debug(
+                    "event.created",
+                    extra={
+                        "ticket_id": event.ticket_id,
+                        "kind": event.kind,
+                        "author": event.author_role,
+                    },
+                )
                 # Изменился статус
                 if event.source_type == EventSourceType.STATUS:
                     await self._create_status_job(event, ticket)
@@ -200,7 +213,10 @@ class Poller:
 
     async def _poll_once(self, cp_tickets: str, cp_events: str):
         tickets_from, events_from = await self._bootstrap_if_needed(cp_tickets, cp_events)
-        self.logger.debug(f"Updated request time\ntickets_from: {tickets_from} - events_from: {events_from}")
+        self.logger.debug(
+            "poll.window",
+            extra={"tickets_from": str(tickets_from), "events_from": str(events_from)},
+        )
         # Tickets - создаем jobs для новых тикетов
         last_seen = await self._process_open_tickets(tickets_from)
         await self.repo.set_checkpoint(cp_tickets, last_seen)
@@ -212,7 +228,11 @@ class Poller:
         async with SessionLocal() as session:
             self.repo = Repository(session)
             async with session.begin():
-                await self.repo.acquire_lock(name=lock_name, holder=lock_holder)
+                await self.repo.acquire_lock(
+                    name=lock_name,
+                    holder=lock_holder,
+                    ttl_seconds=POLL_INTERVAL_SECONDS * 2,
+                )
 
     async def _release_lock(self, lock_name: str, lock_holder: str) -> None:
         async with SessionLocal() as session:
@@ -220,26 +240,39 @@ class Poller:
             async with session.begin():
                 await self.repo.release_lock(name=lock_name, holder=lock_holder)
 
-    async def start(self) -> None:
+    async def start(self, rabbitmq_url: str) -> None:
         lock_name = f"poller:{self.brand.value}"
         lock_holder = f"poller:{os.getpid()}"
         cp_tickets = f"tickets_cursor:{self.brand.value}"
         cp_events = f"events_cursor:{self.brand.value}"
-        self.logger.info(f"{lock_holder} is starting")
-        self.job_queue = RabbitJobQueue()
+
+        self.logger.info("poller.start", extra={"brand": self.brand.value, "holder": lock_holder})
+
+        self.job_queue = RabbitJobQueue(rabbitmq_url)
         await self.job_queue.setup_topology(JobType.all())
         while True:
+            token = log_ctx.set({"brand": self.brand.value, "iteration_id": uuid.uuid4().hex[:8]})
             try:
                 await self._acquire_lock(lock_name, lock_holder)
                 async with SessionLocal() as session:
                     self.repo = Repository(session)
                     async with session.begin():
                         await self._poll_once(cp_tickets, cp_events)
-                        self.logger.debug("=" * 100)
-            except AcquireLockError as error:
-                self.logger.error(error)
-            except Exception as exc:
-                self.logger.warning(f"Poller iteration failed: {exc}", exc_info=True)
+                        self.logger.debug("poller.iteration_done")
+            except AcquireLockError:
+                self.logger.warning("lock.busy", extra={"brand": self.brand.value})
+            except Exception:
+                self.logger.warning("poller.iteration_failed", exc_info=True)
             finally:
+                try:
+                    await self._release_lock(lock_name, lock_holder)
+                except Exception:
+                    pass
                 self.repo = None
+                if self.job_queue:
+                    await self.job_queue.close()
                 await anyio.sleep(POLL_INTERVAL_SECONDS)
+                try:
+                    log_ctx.reset(token)
+                except Exception:
+                    pass

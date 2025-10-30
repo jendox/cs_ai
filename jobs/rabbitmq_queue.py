@@ -1,5 +1,5 @@
 import json
-import os
+import logging
 from collections.abc import Awaitable, Callable
 
 import aio_pika
@@ -14,10 +14,11 @@ DLX = "jobs.dlx"
 
 
 class RabbitJobQueue:
-    def __init__(self, url: str | None = None) -> None:
-        self.url = url or os.getenv("AMQP_URL", "amqp://admin:admin@localhost:5672/")
+    def __init__(self, url: str) -> None:
+        self.url = url
         self._connection: aio_pika.RobustConnection | None = None
         self._channel: AbstractRobustChannel | None = None
+        self.logger = logging.getLogger("jobs.queue")
 
     async def setup_topology(self, job_types: set[JobType]) -> None:
         for job_type in job_types:
@@ -32,9 +33,23 @@ class RabbitJobQueue:
             body=body,
             content_type="application/json",
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            correlation_id=message.get("dedup_key"),
+            headers={
+                "attempt": 0,
+                "brand": brand.value if brand else None,
+                "job_type": job_type.value,
+            },
         )
         exchange = await channel.get_exchange(EXCHANGE)
         await exchange.publish(aio_pika_message, routing_key=routing_key)
+        self.logger.info(
+            "msg.publish",
+            extra={
+                "job_type": job_type.value,
+                "brand": brand.value if brand else None,
+                "correlation_id": message.get("dedup_key"),
+            },
+        )
 
     async def consume(
         self,
@@ -76,6 +91,12 @@ class RabbitJobQueue:
             await self._channel.declare_exchange(DLX, aio_pika.ExchangeType.TOPIC, durable=True)
         return self._channel
 
+    async def close(self) -> None:
+        if self._channel:
+            await self._channel.close()
+        if self._connection:
+            await self._connection.close()
+
     async def _declare_topology(self, job_type: JobType) -> None:
         channel = await self.ensure()
         exchange = await channel.get_exchange(EXCHANGE)
@@ -116,12 +137,15 @@ class RabbitJobQueue:
         message: AbstractIncomingMessage,
         handler: Callable[[dict], Awaitable[bool]],
     ) -> None:
+        extra = {"job_type": job_type.value, "correlation_id": message.correlation_id}
+        self.logger.debug("msg.received", extra={**extra, "attempt": int((message.headers or {}).get("attempt", 0))})
         try:
             payload = json.loads(message.body.decode("utf-8"))
         except Exception:
             # нечитабельные сообщения — сразу в dead
             await message.reject(requeue=False)
-            await self._send_to_dead(job_type.value, message)
+            await self._send_to_dead(job_type, message)
+            self.logger.error("msg.dead.unparseable", extra=extra)
             return
 
         # attempts
@@ -134,6 +158,7 @@ class RabbitJobQueue:
             ok = False
 
         if ok:
+            self.logger.info("msg.ack", extra=extra)
             await message.ack()
             return
 
@@ -141,9 +166,13 @@ class RabbitJobQueue:
         attempt += 1
         if attempt > len(RETRY_DELAYS):
             await message.reject(requeue=False)
-            await self._send_to_dead(job_type.value, message, headers | {"attempt": attempt})
+            await self._send_to_dead(job_type, message, headers | {"attempt": attempt})
+            self.logger.error("msg.dead", extra={**extra, "attempt": attempt})
         else:
-            await self._nack_to_retry(job_type.value, attempt, message, headers)
+            await self._nack_to_retry(job_type, attempt, message, headers)
+            self.logger.warning(
+                "msg.retry", extra={**extra, "attempt": attempt, "next_delay": RETRY_DELAYS[attempt - 1]},
+            )
 
     async def _nack_to_retry(
         self,
@@ -160,6 +189,7 @@ class RabbitJobQueue:
             content_type=message.content_type,
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
             headers=headers | {"attempt": attempt},
+            correlation_id=message.correlation_id,
         )
         await dlx.publish(new_msg, routing_key=f"{job_type.value}.retry.{attempt}")
         await message.ack()

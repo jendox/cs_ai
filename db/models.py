@@ -56,7 +56,7 @@ class Ticket(Base):
 class Event(Base):
     __tablename__ = "events"
 
-    event_key: Mapped[str] = mapped_column(String, primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(32), primary_key=True)
     ticket_id: Mapped[int] = mapped_column(
         ForeignKey(
             "tickets.ticket_id",
@@ -73,7 +73,7 @@ class Event(Base):
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     has_robot_tag: Mapped[bool] = mapped_column(Boolean, default=False)
     body: Mapped[str | None] = mapped_column(Text)
-    body_hash: Mapped[str | None] = mapped_column(String)
+    body_hash: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     inserted_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -96,7 +96,7 @@ class OurPost(Base):
         ),
         nullable=False,
     )
-    body_hash: Mapped[str] = mapped_column(String, nullable=False)
+    body_hash: Mapped[str] = mapped_column(String(32), nullable=False)
     channel: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 

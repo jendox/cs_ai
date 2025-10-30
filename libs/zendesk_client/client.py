@@ -1,42 +1,25 @@
 import logging
-import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Literal, Self
 
 import httpx
 import pydantic
-from pydantic import BaseModel
+
+from config import ZendeskSettings
 
 from .models import Brand, Comment, Ticket, TicketStatus
 
 MAX_HTTPX_CONNECTIONS = 20
 DEFAULT_HTTPX_TIMEOUT = 10.0
 
-CommentKind = Literal["comment_public", "comment_private"]
 
-
-class ZendeskSettings(BaseModel):
-    email: str
-    token: str
-    subdomain: str
-    review_mode: bool
-
-    @classmethod
-    def load(cls) -> Self:
-        return cls(
-            email=os.getenv("ZENDESK_EMAIL"),
-            token=os.getenv("ZENDESK_TOKEN"),
-            subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
-            review_mode=os.getenv("ZENDESK_REVIEW_MODE", default="true").lower() == "true",
-        )
+# CommentKind = Literal["comment_public", "comment_private"]
 
 
 class ZendeskClient:
     def __init__(self, http_client: httpx.AsyncClient, settings: ZendeskSettings) -> None:
-        http_client.auth = (f"{settings.email}/token", settings.token)
-        http_client.base_url = f"https://{settings.subdomain}.zendesk.com/api/v2"
+        http_client.auth = (f"{settings.email}/token", settings.token.get_secret_value())
         self.http_client = http_client
         self.review_mode = settings.review_mode
         self.logger = logging.getLogger("zendesk_client")
@@ -44,18 +27,21 @@ class ZendeskClient:
     async def test_get_tickets(self) -> list[Ticket]:
         url = "/tickets/recent.json"
         response = await self.http_client.get(url)
+        response.raise_for_status()
         tickets = response.json().get("tickets")
-        return [Ticket(**ticket) for ticket in tickets]
+        return [Ticket.model_validate(ticket) for ticket in tickets]
 
     async def get_ticket_by_id(self, ticket_id: int) -> Ticket:
         url = f"/tickets/{ticket_id}.json"
         response = await self.http_client.get(url)
+        response.raise_for_status()
         ticket = response.json().get("ticket")
         return Ticket.model_validate(ticket)
 
     async def get_ticket_comments(self, ticket_id: int) -> list[Comment]:
         url = f"/tickets/{ticket_id}/comments.json"
         response = await self.http_client.get(url)
+        response.raise_for_status()
         data = response.json()
         return [Comment.model_validate(c) for c in data.get("comments")]
 
@@ -82,9 +68,7 @@ class ZendeskClient:
         response.raise_for_status()
         cursor_data = response.json()
         tickets = cursor_data["tickets"]
-        self.logger.info(
-            "Start time: %d - Tickets count: %d", start_time, len(tickets),
-        )
+        self.logger.debug("tickets.batch", extra={"count": len(tickets), "start_time": start_time})
         after_cursor = cursor_data["after_cursor"]
         end_of_stream = cursor_data["end_of_stream"]
         return tickets, after_cursor, end_of_stream
@@ -116,7 +100,7 @@ class ZendeskClient:
         brand: Brand | None = None,
         statuses: set[TicketStatus] | None = None,
     ) -> AsyncGenerator[Ticket, None]:
-        self.logger.info(f"iter_tickets:start_time: {updated_after}")
+        self.logger.debug("tickets.iter_start", extra={"start_time": str(updated_after)})
         start_time = int(updated_after.timestamp())
         async for batch_tickets in self._iter_incremental_tickets(start_time):
             for raw_ticket in batch_tickets:
@@ -130,13 +114,14 @@ class ZendeskClient:
                     if not ticket.updated_at or ticket.updated_at < updated_after:
                         continue
                     yield ticket
-                except pydantic.ValidationError as error:
-                    self.logger.warning("Ticket validation error: %s", str(error))
+                except pydantic.ValidationError:
+                    self.logger.warning("ticket.validation_error")
 
 
 @asynccontextmanager
 async def create_zendesk_client(settings: ZendeskSettings) -> AsyncGenerator[ZendeskClient, None]:
     async with httpx.AsyncClient(
+        base_url=f"https://{settings.subdomain}.zendesk.com/api/v2",
         timeout=httpx.Timeout(DEFAULT_HTTPX_TIMEOUT, connect=DEFAULT_HTTPX_TIMEOUT),
         limits=httpx.Limits(
             max_connections=MAX_HTTPX_CONNECTIONS,

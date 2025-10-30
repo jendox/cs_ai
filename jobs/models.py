@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 import datetime_utils
 from libs.zendesk_client.models import Ticket
@@ -35,7 +35,7 @@ def make_dedup_key(*parts) -> str:
 
 class BaseMessage(BaseModel):
     dedup_key: str | None = None
-    created_at: datetime = datetime_utils.utcnow()
+    created_at: datetime = Field(default_factory=datetime_utils.utcnow)
 
 
 class TicketIdMessage(BaseMessage):
@@ -47,9 +47,8 @@ class InitialReplyMessage(BaseMessage):
 
     @model_validator(mode="after")
     def set_dedup_key(self) -> Self:
-        self.dedup_key = make_dedup_key(
-            self.ticket.id, JobType.INITIAL_REPLY.value, int(self.ticket.created_at.timestamp()),
-        )
+        ts_base = self.ticket.created_at or self.ticket.updated_at or datetime_utils.utcnow()
+        self.dedup_key = make_dedup_key(self.ticket.id, JobType.INITIAL_REPLY.value, int(ts_base.timestamp()))
         return self
 
 

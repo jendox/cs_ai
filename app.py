@@ -1,37 +1,27 @@
-import logging
+import logging.config
 
 import anyio
-from dotenv import load_dotenv
 
-from libs.zendesk_client.client import ZendeskSettings, create_zendesk_client
+import config
+from libs.zendesk_client.client import create_zendesk_client
 from libs.zendesk_client.models import Brand
+from logs.setup import build_logging_config
+from logs.telegram import TelegramHandler
 from zendesk import Poller
-
-LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 logger = logging.getLogger(__name__)
 
 
-async def test_method():
-    async with create_zendesk_client(ZendeskSettings.load()) as client:
-        tickets = await client.test_get_tickets()
-        print(tickets)
-
-    raise RuntimeError()
-
-
 async def main():
     # ticket 109793
-    load_dotenv()
-    # await test_method()
     try:
-        async with create_zendesk_client(ZendeskSettings.load()) as client:
+        settings = config.app_settings.get()
+        logger.info("app.start", extra={"brand": Brand.SUPERSELF.value})
+        async with create_zendesk_client(settings.zendesk) as client:
             poller = Poller(client, Brand.SUPERSELF)
-            # worker = Worker(client)
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(poller.start)
-                # tg.start_soon(worker.start)
+                tg.start_soon(poller.start, settings.rabbitmq.amqp_url)
 
     except anyio.get_cancelled_exc_class():
         logger.info("Прервано пользователем")
@@ -40,8 +30,14 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format=LOGGER_FORMAT,
-        level=logging.INFO,
-    )
+    app_settings = config.AppSettings.load()
+    config.app_settings.set(app_settings)
+    tg_handler = None
+    if app_settings.telegram.enabled:
+        tg_handler = TelegramHandler(
+            bot_token=app_settings.telegram.bot_token.get_secret_value(),
+            chat_id=app_settings.telegram.chat_id,
+            level=app_settings.telegram.min_level,
+        )
+    logging.config.dictConfig(build_logging_config(env="prod", json_logs=True, telegram_handler=tg_handler))
     anyio.run(main)

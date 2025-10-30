@@ -14,6 +14,8 @@ from libs.zendesk_client.models import (
     OptionalStr,
 )
 
+ROBOT_TAG_RE = re.compile(r"@robot(\b|:)", re.IGNORECASE)
+
 
 def get_md5_hash(secret: str) -> str:
     return hashlib.md5(secret.encode()).hexdigest()
@@ -34,6 +36,7 @@ class EventAuthorRole(str, Enum):
     USER = "user"
     AGENT = "agent"
     SYSTEM = "system"
+    UNKNOWN = "unknown"
 
 
 def validate_source_id(value: datetime | str) -> str:
@@ -66,8 +69,7 @@ class Event(BaseModel):
     @model_validator(mode="after")
     def set_has_robot_tag(self) -> Self:
         if self.body is not None:
-            tag = re.compile(r"@robot(\b|:)", re.IGNORECASE)
-            self.has_robot_tag = bool(self.body and tag.search(self.body))
+            self.has_robot_tag = bool(self.body and ROBOT_TAG_RE.search(self.body))
         return self
 
     @model_validator(mode="after")
@@ -76,6 +78,8 @@ class Event(BaseModel):
             self.author_role = EventAuthorRole.SYSTEM
         elif self.author_id in AGENT_IDS:
             self.author_role = EventAuthorRole.AGENT
+        elif self.author_id is None:
+            self.author_role = EventAuthorRole.UNKNOWN
         else:
             self.author_role = EventAuthorRole.USER
         return self
