@@ -1,14 +1,19 @@
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import aio_pika
-from aio_pika.abc import AbstractIncomingMessage, AbstractRobustChannel
+import anyio
+from aio_pika.abc import AbstractIncomingMessage, AbstractRobustChannel, AbstractRobustExchange
 
 from jobs.models import JobType
 from libs.zendesk_client.models import Brand
 
 RETRY_DELAYS = [60, 300, 900]  # 1m, 5m, 15m (сек)
+CONNECTION_TIMEOUT = 30
+EXCHANGE_TIMEOUT = 10
+MAX_PUBLISH_ATTEMPTS = 3
 EXCHANGE = "jobs"
 DLX = "jobs.dlx"
 
@@ -18,38 +23,67 @@ class RabbitJobQueue:
         self.url = url
         self._connection: aio_pika.RobustConnection | None = None
         self._channel: AbstractRobustChannel | None = None
+        self._jobs_exchange: AbstractRobustExchange | None = None
+        self._dlx_exchange: AbstractRobustExchange | None = None
+        self._lock = anyio.Lock()
         self.logger = logging.getLogger("jobs.queue")
+
+    @asynccontextmanager
+    async def context(self) -> AsyncGenerator["RabbitJobQueue"]:
+        try:
+            yield self
+        finally:
+            await self.close()
 
     async def setup_topology(self, job_types: set[JobType]) -> None:
         for job_type in job_types:
             await self._declare_topology(job_type)
 
-    async def publish(self, job_type: JobType, message: dict, *, brand: Brand | None = None) -> None:
-        channel = await self.ensure()
+    async def publish(self, job_type: JobType, message: dict, *, brand: Brand | None = None) -> bool:
         routing_key = f"{job_type.value}.{brand.value}" if brand else job_type.value
+        body_str = json.dumps(message, ensure_ascii=False)
+        body_bytes = body_str.encode()
+        for attempt in range(MAX_PUBLISH_ATTEMPTS):
+            try:
+                await self.ensure()
+                aio_pika_message = aio_pika.Message(
+                    body=body_bytes,
+                    content_type="application/json",
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                    correlation_id=message.get("dedup_key"),
+                    headers={
+                        "attempt": 0,
+                        "brand": brand.value if brand else None,
+                        "job_type": job_type.value,
+                    },
+                )
+                await self._jobs_exchange.publish(aio_pika_message, routing_key=routing_key)
+                self.logger.info(
+                    "msg.publish",
+                    extra={
+                        "job_type": job_type.value,
+                        "brand": brand.value if brand else None,
+                        "correlation_id": message.get("dedup_key"),
+                    },
+                )
+                return True
+            except (aio_pika.exceptions.AMQPError, ConnectionError) as exc:
+                self.logger.warning("msg.publish.retry", extra={"attempt": attempt + 1, "error": str(exc)})
+                if attempt < MAX_PUBLISH_ATTEMPTS - 1:
+                    await anyio.sleep(1 * (attempt + 1))
 
-        body = json.dumps(message, ensure_ascii=False).encode()
-        aio_pika_message = aio_pika.Message(
-            body=body,
-            content_type="application/json",
-            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            correlation_id=message.get("dedup_key"),
-            headers={
-                "attempt": 0,
-                "brand": brand.value if brand else None,
-                "job_type": job_type.value,
-            },
-        )
-        exchange = await channel.get_exchange(EXCHANGE)
-        await exchange.publish(aio_pika_message, routing_key=routing_key)
-        self.logger.info(
-            "msg.publish",
+        self.logger.error(
+            "msg.publish.failed",
             extra={
+                "routing_key": routing_key,
+                "body": body_str,
                 "job_type": job_type.value,
                 "brand": brand.value if brand else None,
+                "total_attempts": MAX_PUBLISH_ATTEMPTS,
                 "correlation_id": message.get("dedup_key"),
             },
         )
+        return False
 
     async def consume(
         self,
@@ -59,12 +93,12 @@ class RabbitJobQueue:
         brand: str | None = None,
         prefetch: int = 4,
     ) -> None:
-        ch = await self.ensure()
-        await ch.set_qos(prefetch)
+        channel = await self.ensure()
+        await channel.set_qos(prefetch)
         await self._declare_topology(job_type)
         if brand:
             # отдельная очередь под бренд (опционально). Если не нужно — уберите этот блок.
-            q = await ch.declare_queue(
+            queue = await channel.declare_queue(
                 name=f"jobs.{job_type.value}.{brand}",
                 durable=True,
                 arguments={
@@ -72,36 +106,77 @@ class RabbitJobQueue:
                     "x-dead-letter-routing-key": f"{job_type.value}.retry.1",
                 },
             )
-            ex = await ch.get_exchange(EXCHANGE)
-            await q.bind(ex, routing_key=f"{job_type.value}.{brand}")
+            await queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.{brand}")
         else:
-            q = await ch.get_queue(f"jobs.{job_type.value}")
+            queue = await channel.get_queue(f"jobs.{job_type.value}")
 
-        async with q.iterator() as queue_iter:
+        async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 await self._process_message(job_type, message, handler)
 
     async def ensure(self) -> AbstractRobustChannel:
-        if not self._connection:
-            self._connection = await aio_pika.connect_robust(self.url)
-        if not self._channel:
-            self._channel = await self._connection.channel()
-            await self._channel.set_qos(10)
-            await self._channel.declare_exchange(EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True)
-            await self._channel.declare_exchange(DLX, aio_pika.ExchangeType.TOPIC, durable=True)
-        return self._channel
+        async with self._lock:
+            if await self._need_reconnect():
+                await self._reconnect()
+            return self._channel
 
     async def close(self) -> None:
+        self._jobs_exchange = None
+        self._dlx_exchange = None
         if self._channel:
-            await self._channel.close()
+            try:
+                await self._channel.close()
+            finally:
+                self._channel = None
         if self._connection:
-            await self._connection.close()
+            try:
+                await self._connection.close()
+            finally:
+                self._connection = None
+
+    async def _need_reconnect(self) -> bool:
+        if not self._connection or self._connection.is_closed:
+            self.logger.debug("connection.reconnect_needed", extra={"reason": "no_connection_or_closed"})
+            return True
+        if not self._channel or self._channel.is_closed:
+            self.logger.debug("connection.reconnect_needed", extra={"reason": "no_channel_or_closed"})
+            return True
+        try:
+            await self._channel.get_exchange(EXCHANGE, ensure=False)
+            return False
+        except (aio_pika.exceptions.AMQPError, ConnectionError, OSError) as error:
+            self.logger.debug(
+                "connection.reconnect_needed", extra={"reason": "health_check_failed", "error": str(error)},
+            )
+            return True
+        except Exception as exc:
+            self.logger.debug("connection.health_check_unexpected_error", extra={"error": str(exc)})
+            return True
+
+    async def _reconnect(self):
+        try:
+            self.logger.debug("connection.reconnecting")
+            await self.close()
+            with anyio.fail_after(CONNECTION_TIMEOUT):
+                self._connection = await aio_pika.connect_robust(self.url)
+                self._channel = await self._connection.channel()
+                await self._channel.set_qos(10)
+                with anyio.fail_after(EXCHANGE_TIMEOUT):
+                    self._jobs_exchange = await self._channel.declare_exchange(
+                        EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True,
+                    )
+                    self._dlx_exchange = await self._channel.declare_exchange(
+                        DLX, aio_pika.ExchangeType.TOPIC, durable=True,
+                    )
+            self.logger.debug("connection.reconnected")
+        except Exception as exc:
+            self.logger.error("connection.reconnect_failed", extra={"error": str(exc)})
+            await self.close()
+            raise
 
     async def _declare_topology(self, job_type: JobType) -> None:
+        self.logger.debug("topology.declare.start", extra={"job_type": job_type.value})
         channel = await self.ensure()
-        exchange = await channel.get_exchange(EXCHANGE)
-        dlx = await channel.get_exchange(DLX)
-
         main_queue = await channel.declare_queue(
             name=f"jobs.{job_type.value}",
             durable=True,
@@ -110,11 +185,11 @@ class RabbitJobQueue:
                 "x-dead-letter-routing-key": f"{job_type.value}.retry.1",
             },
         )
-        await main_queue.bind(exchange, routing_key=f"{job_type.value}.#")
+        await main_queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.#")
 
         for i, delay in enumerate(RETRY_DELAYS, start=1):
             next_key = f"{job_type.value}" if i == len(RETRY_DELAYS) else f"{job_type.value}.retry.{i + 1}"
-            q = await channel.declare_queue(
+            queue = await channel.declare_queue(
                 name=f"jobs.{job_type.value}.retry.{i}",
                 durable=True,
                 arguments={
@@ -123,13 +198,14 @@ class RabbitJobQueue:
                     "x-dead-letter-routing-key": next_key,
                 },
             )
-            await q.bind(dlx, routing_key=f"{job_type.value}.retry.{i}")
+            await queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.retry.{i}")
 
         dead_queue = await channel.declare_queue(
             name=f"jobs.{job_type.value}.dead",
             durable=True,
         )
-        await dead_queue.bind(dlx, routing_key=f"{job_type.value}.dead")
+        await dead_queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.dead")
+        self.logger.debug("topology.declare.completed", extra={"job_type": job_type.value})
 
     async def _process_message(
         self,
@@ -138,7 +214,9 @@ class RabbitJobQueue:
         handler: Callable[[dict], Awaitable[bool]],
     ) -> None:
         extra = {"job_type": job_type.value, "correlation_id": message.correlation_id}
-        self.logger.debug("msg.received", extra={**extra, "attempt": int((message.headers or {}).get("attempt", 0))})
+        self.logger.debug(
+            "msg.received", extra={**extra, "attempt": int((message.headers or {}).get("attempt", 0))},
+        )
         try:
             payload = json.loads(message.body.decode("utf-8"))
         except Exception:
@@ -181,8 +259,7 @@ class RabbitJobQueue:
         message: AbstractIncomingMessage,
         headers: dict,
     ) -> None:
-        ch = await self.ensure()
-        dlx = await ch.get_exchange(DLX)
+        await self.ensure()
         # публикуем в соответствующую retry-очередь через DLX
         new_msg = aio_pika.Message(
             body=message.body,
@@ -191,7 +268,7 @@ class RabbitJobQueue:
             headers=headers | {"attempt": attempt},
             correlation_id=message.correlation_id,
         )
-        await dlx.publish(new_msg, routing_key=f"{job_type.value}.retry.{attempt}")
+        await self._dlx_exchange.publish(new_msg, routing_key=f"{job_type.value}.retry.{attempt}")
         await message.ack()
 
     async def _send_to_dead(
@@ -200,12 +277,17 @@ class RabbitJobQueue:
         message: AbstractIncomingMessage,
         headers: dict | None = None,
     ) -> None:
-        ch = await self.ensure()
-        dlx = await ch.get_exchange(DLX)
+        await self.ensure()
         dead_msg = aio_pika.Message(
             body=message.body,
             content_type=message.content_type,
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
             headers=headers or message.headers,
         )
-        await dlx.publish(dead_msg, routing_key=f"{job_type.value}.dead")
+        await self._dlx_exchange.publish(dead_msg, routing_key=f"{job_type.value}.dead")
+
+
+async def create_job_queue(rabbitmq_url: str) -> RabbitJobQueue:
+    job_queue = RabbitJobQueue(rabbitmq_url)
+    await job_queue.setup_topology(JobType.all())
+    return job_queue

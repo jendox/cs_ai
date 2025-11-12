@@ -5,8 +5,7 @@ import anyio
 import config
 from libs.zendesk_client.client import create_zendesk_client
 from libs.zendesk_client.models import Brand
-from logs.setup import build_logging_config
-from logs.telegram import TelegramHandler
+from logs import LogEnvironment, TelegramHandler, build_logging_config
 from zendesk import Poller
 
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ async def main():
     # ticket 109793
     try:
         settings = config.app_settings.get()
-        logger.info("app.start", extra={"brand": Brand.SUPERSELF.value})
+        logger.info("app.up", extra={"brand": Brand.SUPERSELF.value})
         async with create_zendesk_client(settings.zendesk) as client:
             poller = Poller(client, Brand.SUPERSELF)
 
@@ -27,6 +26,8 @@ async def main():
         logger.info("Прервано пользователем")
     except Exception as exc:
         logger.error(exc, exc_info=True)
+    finally:
+        logger.info("app.shutdown", extra={"brand": Brand.SUPERSELF.value})
 
 
 if __name__ == "__main__":
@@ -39,5 +40,5 @@ if __name__ == "__main__":
             chat_id=app_settings.telegram.chat_id,
             level=app_settings.telegram.min_level,
         )
-    logging.config.dictConfig(build_logging_config(env="prod", json_logs=True, telegram_handler=tg_handler))
+    logging.config.dictConfig(build_logging_config(LogEnvironment.DEV, json_logs=True, telegram_handler=tg_handler))
     anyio.run(main)

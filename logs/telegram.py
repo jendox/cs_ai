@@ -6,6 +6,10 @@ import time
 
 import httpx
 
+__all__ = (
+    "TelegramHandler",
+)
+
 RATE_LIMIT_SECONDS = 60
 
 

@@ -139,7 +139,7 @@ class Repository:
             )
         )
         await self._session.execute(stmt)
-        self.logger.debug("checkpoint.set", extra={"name": name, "value": str(value)})
+        self.logger.debug("checkpoint.set", extra={"data": {"name": name, "value": str(value)}})
 
     # --- Locks ---
     async def acquire_lock(
@@ -168,7 +168,7 @@ class Repository:
         current = result.scalar_one_or_none()
         if current != holder:
             raise AcquireLockError(name, current)
-        self.logger.debug("lock.acquired", extra={"name": name, "holder": holder})
+        self.logger.debug("lock.acquired", extra={"data": {"name": name, "holder": holder}})
 
     async def release_lock(self, *, name: str, holder: str):
         stmt = delete(LockEntity).where(
@@ -178,4 +178,4 @@ class Repository:
             ),
         )
         await self._session.execute(stmt)
-        self.logger.debug("lock.released", extra={"name": name, "holder": holder})
+        self.logger.debug("lock.released", extra={"data": {"name": name, "holder": holder}})

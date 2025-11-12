@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import anyio
@@ -10,7 +11,7 @@ import datetime_utils
 from db import SessionLocal
 from db.repository import AcquireLockError, Repository, TicketNotFound
 from jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
-from jobs.rabbitmq_queue import RabbitJobQueue
+from jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
 from libs.zendesk_client.client import ZendeskClient
 from libs.zendesk_client.models import Brand, Ticket, TicketStatus
 from logs.filters import log_ctx
@@ -75,9 +76,6 @@ class Poller:
                         ticket=ticket,
                     ).model_dump(mode="json"),
                     brand=self.brand,
-                )
-                self.logger.debug(
-                    "job.created", extra={"ticket_id": ticket.id, "job_type": JobType.INITIAL_REPLY.value},
                 )
             pivot = ticket.updated_at or ticket.created_at
             if pivot:
@@ -155,7 +153,6 @@ class Poller:
                 ).model_dump(mode="json"),
                 brand=self.brand,
             )
-            self.logger.debug(f"Created job: {JobType.TICKET_CLOSED} - ticket_id: {ticket.id}")
 
     async def _create_comment_job(self, event: Event) -> None:
         if (
@@ -170,7 +167,6 @@ class Poller:
                 ).model_dump(mode="json"),
                 brand=self.brand,
             )
-            self.logger.debug(f"Created job: {JobType.USER_REPLY} - ticket_id: {event.ticket_id}")
         elif (
             event.kind == EventKind.COMMENT_PRIVATE
             and event.has_robot_tag
@@ -184,7 +180,6 @@ class Poller:
                 ).model_dump(mode="json"),
                 brand=self.brand,
             )
-            self.logger.debug(f"Created job: {JobType.AGENT_DIRECTIVE} - ticket_id: {event.ticket_id}")
 
     async def _process_events(self, updated_after: datetime) -> datetime:
         latest_seen = updated_after
@@ -224,55 +219,76 @@ class Poller:
         latest_seen = await self._process_events(events_from)
         await self.repo.set_checkpoint(cp_events, latest_seen)
 
-    async def _acquire_lock(self, lock_name: str, lock_holder: str) -> None:
+    async def start(self, rabbitmq_url: str) -> None:
+        self.logger.info("poller.start", extra={"brand": self.brand.value})
+        self.job_queue = await create_job_queue(rabbitmq_url)
+
+        while True:
+            async with self._polling_iteration_context():
+                if await self._try_acquire_lock():
+                    await self._run_polling_cycle()
+
+    async def _acquire_lock(self) -> None:
         async with SessionLocal() as session:
-            self.repo = Repository(session)
+            repo = Repository(session)
             async with session.begin():
-                await self.repo.acquire_lock(
-                    name=lock_name,
-                    holder=lock_holder,
+                await repo.acquire_lock(
+                    name=f"poller:{self.brand.value}",
+                    holder=f"poller:{os.getpid()}",
                     ttl_seconds=POLL_INTERVAL_SECONDS * 2,
                 )
+        self.logger.debug("lock.acquired", extra={"brand": self.brand.value})
 
-    async def _release_lock(self, lock_name: str, lock_holder: str) -> None:
+    async def _release_lock(self) -> None:
         async with SessionLocal() as session:
+            repo = Repository(session)
+            async with session.begin():
+                await repo.release_lock(
+                    name=f"poller:{self.brand.value}",
+                    holder=f"poller:{os.getpid()}",
+                )
+        self.logger.debug("lock.released", extra={"brand": self.brand.value})
+
+    async def _try_acquire_lock(self) -> bool:
+        try:
+            await self._acquire_lock()
+            return True
+        except AcquireLockError:
+            self.logger.warning("lock.busy", extra={"brand": self.brand.value})
+            return False
+
+    async def _cleanup_iteration(self, token) -> None:
+        try:
+            await self._release_lock()
+        except Exception as exc:
+            self.logger.debug("lock.release_failed", extra={"error": str(exc)})
+        finally:
+            self.repo = None
+        await anyio.sleep(POLL_INTERVAL_SECONDS)
+        try:
+            log_ctx.reset(token)
+        except Exception:
+            pass
+
+    @asynccontextmanager
+    async def _polling_iteration_context(self):
+        token = log_ctx.set({"brand": self.brand.value, "iteration_id": uuid.uuid4().hex[:8]})
+        try:
+            yield
+        except Exception:
+            self.logger.warning("poller.iteration_failed", exc_info=True)
+        finally:
+            await self._cleanup_iteration(token)
+
+    async def _run_polling_cycle(self) -> None:
+        async with (
+            SessionLocal() as session,
+            self.job_queue.context(),
+        ):
             self.repo = Repository(session)
             async with session.begin():
-                await self.repo.release_lock(name=lock_name, holder=lock_holder)
-
-    async def start(self, rabbitmq_url: str) -> None:
-        lock_name = f"poller:{self.brand.value}"
-        lock_holder = f"poller:{os.getpid()}"
-        cp_tickets = f"tickets_cursor:{self.brand.value}"
-        cp_events = f"events_cursor:{self.brand.value}"
-
-        self.logger.info("poller.start", extra={"brand": self.brand.value, "holder": lock_holder})
-
-        self.job_queue = RabbitJobQueue(rabbitmq_url)
-        await self.job_queue.setup_topology(JobType.all())
-        while True:
-            token = log_ctx.set({"brand": self.brand.value, "iteration_id": uuid.uuid4().hex[:8]})
-            try:
-                await self._acquire_lock(lock_name, lock_holder)
-                async with SessionLocal() as session:
-                    self.repo = Repository(session)
-                    async with session.begin():
-                        await self._poll_once(cp_tickets, cp_events)
-                        self.logger.debug("poller.iteration_done")
-            except AcquireLockError:
-                self.logger.warning("lock.busy", extra={"brand": self.brand.value})
-            except Exception:
-                self.logger.warning("poller.iteration_failed", exc_info=True)
-            finally:
-                try:
-                    await self._release_lock(lock_name, lock_holder)
-                except Exception:
-                    pass
-                self.repo = None
-                if self.job_queue:
-                    await self.job_queue.close()
-                await anyio.sleep(POLL_INTERVAL_SECONDS)
-                try:
-                    log_ctx.reset(token)
-                except Exception:
-                    pass
+                await self._poll_once(
+                    f"tickets_cursor:{self.brand.value}",
+                    f"events_cursor:{self.brand.value}",
+                )
+                self.logger.debug("poller.iteration_done")
