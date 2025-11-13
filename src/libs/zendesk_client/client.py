@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 import pydantic
 
-from config import ZendeskSettings
+from src.config import ZendeskSettings
 
 from .models import Brand, Comment, Ticket, TicketStatus
 

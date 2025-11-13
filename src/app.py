@@ -2,19 +2,17 @@ import logging.config
 
 import anyio
 
-import config
-import services
-from db.sa import Database
-from libs.zendesk_client.client import create_zendesk_client
-from libs.zendesk_client.models import Brand
-from logs import LogEnvironment, TelegramHandler, build_logging_config
-from workers import InitialReplyWorker
-from zendesk.poller import Poller
+from src import config, services
+from src.db.sa import Database
+from src.libs.zendesk_client.client import create_zendesk_client
+from src.libs.zendesk_client.models import Brand
+from src.workers import InitialReplyWorker
+from src.zendesk.poller import Poller
 
 logger = logging.getLogger("cs")
 
 
-async def main():
+async def app():
     brand = Brand.SUPERSELF
     logger.info("app.up", extra={"brand": brand.value})
     try:
@@ -42,18 +40,3 @@ async def main():
         logger.error("app.fatal", exc_info=True)
     finally:
         logger.info("app.shutdown", extra={"brand": brand.value})
-
-
-if __name__ == "__main__":
-    app_settings = config.AppSettings.load()
-    config.app_settings.set(app_settings)
-    telegram_handler = None
-    if app_settings.telegram.enabled:
-        telegram_handler = TelegramHandler(
-            bot_token=app_settings.telegram.bot_token.get_secret_value(),
-            chat_id=app_settings.telegram.chat_id,
-            level=app_settings.telegram.min_level,
-        )
-    log_config = build_logging_config(LogEnvironment.DEV, json_logs=True, telegram_handler=telegram_handler)
-    logging.config.dictConfig(log_config)
-    anyio.run(main)

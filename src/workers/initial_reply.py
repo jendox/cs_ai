@@ -6,14 +6,14 @@ from contextlib import contextmanager
 import httpx
 from pydantic import ValidationError
 
-from db import session_local
-from db.repository import Repository
-from jobs.models import InitialReplyMessage, JobType
-from jobs.rabbitmq_queue import create_job_queue
-from libs.zendesk_client.client import ZendeskClient
-from libs.zendesk_client.models import Brand, Ticket, Via
-from logs.filters import log_ctx
-from services import Service
+from src.db import session_local
+from src.db.repository import Repository
+from src.jobs.models import InitialReplyMessage, JobType
+from src.jobs.rabbitmq_queue import create_job_queue
+from src.libs.zendesk_client.client import ZendeskClient
+from src.libs.zendesk_client.models import Brand, Ticket, Via
+from src.logs.filters import log_ctx
+from src.services import Service
 
 # ----------------------------- Служебный фильтр -----------------------------
 _SERVICE_SUBJECT_RE = re.compile(

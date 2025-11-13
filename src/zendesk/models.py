@@ -6,8 +6,8 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, BeforeValidator, model_validator
 
-import datetime_utils
-from libs.zendesk_client.models import (
+from src import datetime_utils
+from src.libs.zendesk_client.models import (
     AGENT_IDS,
     OptionalDatetime,
     OptionalInt,

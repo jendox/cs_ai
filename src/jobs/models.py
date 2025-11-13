@@ -5,8 +5,8 @@ from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 
-import datetime_utils
-from libs.zendesk_client.models import Ticket
+from src import datetime_utils
+from src.libs.zendesk_client.models import Ticket
 
 
 class JobStatus(str, Enum):

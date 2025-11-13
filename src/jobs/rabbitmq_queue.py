@@ -7,8 +7,8 @@ import aio_pika
 import anyio
 from aio_pika.abc import AbstractIncomingMessage, AbstractRobustChannel, AbstractRobustExchange
 
-from jobs.models import JobType
-from libs.zendesk_client.models import Brand
+from src.jobs.models import JobType
+from src.libs.zendesk_client.models import Brand
 
 RETRY_DELAYS = [60, 300, 900]  # 1m, 5m, 15m (сек)
 CONNECTION_TIMEOUT = 30

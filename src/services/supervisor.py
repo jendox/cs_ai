@@ -2,7 +2,7 @@ import logging
 
 import anyio
 
-from services.base import Service
+from src.services.base import Service
 
 __all__ = (
     "supervise",

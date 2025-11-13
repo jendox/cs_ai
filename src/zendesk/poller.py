@@ -6,15 +6,16 @@ from datetime import datetime, timedelta
 
 import anyio
 
-import datetime_utils
-from db import session_local
-from db.repository import AcquireLockError, Repository, TicketNotFound
-from jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
-from jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
-from libs.zendesk_client.client import ZendeskClient
-from libs.zendesk_client.models import Brand, Ticket, TicketStatus
-from logs.filters import log_ctx
-from services import Service
+from src import datetime_utils
+from src.db import session_local
+from src.db.repository import AcquireLockError, Repository, TicketNotFound
+from src.jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
+from src.jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
+from src.libs.zendesk_client.client import ZendeskClient
+from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
+from src.logs.filters import log_ctx
+from src.services import Service
+
 from .models import Event, EventAuthorRole, EventKind, EventSourceType
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5

@@ -8,7 +8,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from db.models import Base
+from src.db.models import Base
 
 # Загружаем переменные из .env
 load_dotenv()

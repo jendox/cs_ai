@@ -3,12 +3,12 @@ from contextlib import contextmanager
 
 from pydantic import ValidationError
 
-from jobs.models import JobType, TicketClosedMessage
-from jobs.rabbitmq_queue import create_job_queue
-from libs.zendesk_client.client import ZendeskClient
-from libs.zendesk_client.models import Brand
-from logs.filters import log_ctx
-from services import Service
+from src.jobs.models import JobType, TicketClosedMessage
+from src.jobs.rabbitmq_queue import create_job_queue
+from src.libs.zendesk_client.client import ZendeskClient
+from src.libs.zendesk_client.models import Brand
+from src.logs.filters import log_ctx
+from src.services import Service
 
 
 @contextmanager

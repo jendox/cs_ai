@@ -15,35 +15,42 @@ class JsonFormatter(logging.Formatter):
     CONTEXT_FIELDS = {"brand", "ticket_id", "job_type", "iteration_id"}
 
     def format(self, record: logging.LogRecord) -> str:
-        d = {
+        fields = self._build_base(record)
+        self._add_context_fields(record, fields)
+        self._add_extra_fields(record, fields)
+        self._add_exception(record, fields)
+
+        return json.dumps(fields, ensure_ascii=False)
+
+    @staticmethod
+    def _build_base(record: logging.LogRecord) -> dict:
+        return {
             "ts": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
         }
 
-        # контекстные поля (log_ctx)
+    def _add_context_fields(self, record: logging.LogRecord, data: dict) -> None:
         for field in self.CONTEXT_FIELDS:
             val = getattr(record, field, None)
             if val is not None:
-                d[field] = val
+                data[field] = val
 
-        # EXTRA поля — всё, что пришло в record.__dict__
+    def _add_extra_fields(self, record: logging.LogRecord, data: dict) -> None:
         for key, value in record.__dict__.items():
             if key in self.DROP_FIELDS:
                 continue
-            if key in d:
-                continue  # не перезаписываем контекстные поля
+            if key in data:
+                continue  # не перезаписываем контекстные поля/базовые
             if key.startswith("_"):
                 continue  # внутренние поля логгера
 
-            d[key] = value
+            data[key] = value
 
-        # exception
+    def _add_exception(self, record: logging.LogRecord, data: dict) -> None:
         if record.exc_info:
-            d["exc"] = self.formatException(record.exc_info)
-
-        return json.dumps(d, ensure_ascii=False)
+            data["exc"] = self.formatException(record.exc_info)
 
 # class JsonFormatter(logging.Formatter):
 #     def format(self, record: logging.LogRecord) -> str:

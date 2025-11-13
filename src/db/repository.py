@@ -7,16 +7,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import datetime_utils
-from db.models import (
+from src import datetime_utils
+from src.db.models import (
     Checkpoint as CheckpointEntity,
     Event as EventEntity,
     Lock as LockEntity,
     OurPost as OurPostEntity,
     Ticket as TicketEntity,
 )
-from libs.zendesk_client.models import Ticket
-from zendesk.models import Event
+from src.libs.zendesk_client.models import Ticket
+from src.zendesk.models import Event
 
 
 class TicketNotFound(Exception): ...

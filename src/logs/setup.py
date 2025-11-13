@@ -1,8 +1,8 @@
 from enum import Enum
 from typing import Any
 
-from logs.filters import ContextFilter, DedupFilter, RedactFilter
-from logs.formatters import JsonFormatter
+from src.logs.filters import ContextFilter, DedupFilter, RedactFilter
+from src.logs.formatters import JsonFormatter
 
 __all__ = (
     "LogEnvironment",
