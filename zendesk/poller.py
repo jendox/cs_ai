@@ -1,4 +1,3 @@
-import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -8,14 +7,14 @@ from datetime import datetime, timedelta
 import anyio
 
 import datetime_utils
-from db import SessionLocal
+from db import session_local
 from db.repository import AcquireLockError, Repository, TicketNotFound
 from jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
 from jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
 from libs.zendesk_client.client import ZendeskClient
 from libs.zendesk_client.models import Brand, Ticket, TicketStatus
 from logs.filters import log_ctx
-
+from services import Service
 from .models import Event, EventAuthorRole, EventKind, EventSourceType
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5
@@ -39,13 +38,42 @@ class NoStatusChange(Exception):
         super().__init__(f"Ticket {ticket_id}: status unchanged ({status})")
 
 
-class Poller:
-    def __init__(self, client: ZendeskClient, brand: Brand) -> None:
-        self.brand = brand
-        self.client = client
+class Poller(Service):
+    def __init__(
+        self,
+        zendesk_client: ZendeskClient,
+        amqp_url: str,
+        brand: Brand,
+    ) -> None:
+        super().__init__(name="zendesk_poller", brand=brand)
+        self._zendesk_client = zendesk_client
+        self._amqp_url = amqp_url
         self.repo: Repository | None = None
         self.job_queue: RabbitJobQueue | None = None
-        self.logger = logging.getLogger("zendesk_poller")
+
+    @staticmethod
+    async def _upsert_ticket(ticket: Ticket, observing: bool = True) -> bool:
+        """
+        Сохраняет тикет в БД и возвращает, был ли он новым.
+
+        ВАЖНО:
+        Этот апдейт должен выполняться ПЕРЕД публикацией задач в очередь.
+        Иначе возможна гонка с воркерами:
+          - воркер создаёт our_posts с FK на tickets.ticket_id;
+          - если тикета ещё нет (транзакция не закоммичена), получим ForeignKeyViolation.
+
+        Поэтому:
+          1) _upsert_ticket вызывается и дожидается коммита;
+          2) только после этого публикуем джобы в RabbitMQ.
+        """
+        async with session_local() as session:
+            repo = Repository(session)
+            async with session.begin():
+                is_new = await repo.upsert_ticket_and_check_new(
+                    ticket=ticket,
+                    observing=observing,
+                )
+        return is_new
 
     async def _bootstrap_if_needed(self, cp_tickets: str, cp_events: str) -> tuple[datetime, datetime]:
         tickets_from = await self.repo.get_checkpoint(cp_tickets)
@@ -63,12 +91,8 @@ class Poller:
 
     async def _process_open_tickets(self, updated_after: datetime) -> datetime:
         lastest_seen = updated_after
-        async for ticket in self.client.iter_tickets(updated_after, self.brand, TicketStatus.active()):
-            is_new = await self.repo.upsert_ticket_and_check_new(
-                ticket=ticket,
-                observing=True,
-                last_seen_at=datetime_utils.utcnow(),
-            )
+        async for ticket in self._zendesk_client.iter_tickets(updated_after, self.brand, TicketStatus.active()):
+            is_new = await self._upsert_ticket(ticket=ticket, observing=True)
             if is_new:
                 await self.job_queue.publish(
                     JobType.INITIAL_REPLY,
@@ -96,7 +120,7 @@ class Poller:
         raise NoStatusChange(ticket_id=ticket.id, status=ticket.status)
 
     async def _iter_new_comments(self, ticket_id: int, updated_after: datetime) -> AsyncGenerator[Event, None]:
-        comments = await self.client.get_ticket_comments(ticket_id)
+        comments = await self._zendesk_client.get_ticket_comments(ticket_id)
         for comment in comments:
             if not comment.created_at or comment.created_at <= updated_after:
                 continue
@@ -113,7 +137,7 @@ class Poller:
             )
 
     async def _iter_events(self, updated_after: datetime) -> AsyncGenerator[tuple[Event, Ticket], None]:
-        async for updated_ticket in self.client.iter_tickets(
+        async for updated_ticket in self._zendesk_client.iter_tickets(
             updated_after=updated_after,
             brand=self.brand,
             statuses=TicketStatus.all(),
@@ -133,16 +157,13 @@ class Poller:
                 yield event, updated_ticket
 
     async def _update_db_ticket(self, ticket: Ticket):
-        await self.repo.upsert_ticket_and_check_new(
-            Ticket(
-                id=ticket.id,
-                brand=self.brand,
-                status=ticket.status.value,
-                updated_at=ticket.updated_at,
-            ),
-            observing=True,
-            last_seen_at=datetime_utils.utcnow(),
+        update_ticket = Ticket(
+            id=ticket.id,
+            brand=self.brand,
+            status=ticket.status.value,
+            updated_at=ticket.updated_at,
         )
+        await self._upsert_ticket(ticket=update_ticket, observing=True)
 
     async def _create_status_job(self, event: Event, ticket: Ticket) -> None:
         if ticket.status in {TicketStatus.CLOSED}:
@@ -219,17 +240,15 @@ class Poller:
         latest_seen = await self._process_events(events_from)
         await self.repo.set_checkpoint(cp_events, latest_seen)
 
-    async def start(self, rabbitmq_url: str) -> None:
-        self.logger.info("poller.start", extra={"brand": self.brand.value})
-        self.job_queue = await create_job_queue(rabbitmq_url)
-
+    async def run(self) -> None:
+        self.job_queue = await create_job_queue(self._amqp_url, self.brand)
         while True:
             async with self._polling_iteration_context():
                 if await self._try_acquire_lock():
                     await self._run_polling_cycle()
 
     async def _acquire_lock(self) -> None:
-        async with SessionLocal() as session:
+        async with session_local() as session:
             repo = Repository(session)
             async with session.begin():
                 await repo.acquire_lock(
@@ -240,7 +259,7 @@ class Poller:
         self.logger.debug("lock.acquired", extra={"brand": self.brand.value})
 
     async def _release_lock(self) -> None:
-        async with SessionLocal() as session:
+        async with session_local() as session:
             repo = Repository(session)
             async with session.begin():
                 await repo.release_lock(
@@ -282,7 +301,7 @@ class Poller:
 
     async def _run_polling_cycle(self) -> None:
         async with (
-            SessionLocal() as session,
+            session_local() as session,
             self.job_queue.context(),
         ):
             self.repo = Repository(session)

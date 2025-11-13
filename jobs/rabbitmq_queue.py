@@ -19,6 +19,19 @@ DLX = "jobs.dlx"
 
 
 class RabbitJobQueue:
+    """
+    Очереди изолированы по брендам.
+      main:   jobs.<job_type>.<brand>
+      retryN: jobs.<job_type>.<brand>.retry.<N>
+      dead:   jobs.<job_type>.<brand>.dead
+
+    Маршрутизация:
+      publish -> EXCHANGE routing_key=<job_type>.<brand>
+      retry   -> DLX      routing_key=<job_type>.<brand>.retry.<attempt>
+      back    -> EXCHANGE routing_key=<job_type>.<brand> (последняя retry)
+      dead    -> DLX      routing_key=<job_type>.<brand>.dead
+    """
+
     def __init__(self, url: str) -> None:
         self.url = url
         self._connection: aio_pika.RobustConnection | None = None
@@ -28,6 +41,10 @@ class RabbitJobQueue:
         self._lock = anyio.Lock()
         self.logger = logging.getLogger("jobs.queue")
 
+    async def setup_brand_topology(self, job_types: set[JobType], brand: Brand) -> None:
+        for job_type in job_types:
+            await self._declare_brand_topology(job_type, brand)
+
     @asynccontextmanager
     async def context(self) -> AsyncGenerator["RabbitJobQueue"]:
         try:
@@ -35,14 +52,11 @@ class RabbitJobQueue:
         finally:
             await self.close()
 
-    async def setup_topology(self, job_types: set[JobType]) -> None:
-        for job_type in job_types:
-            await self._declare_topology(job_type)
-
-    async def publish(self, job_type: JobType, message: dict, *, brand: Brand | None = None) -> bool:
-        routing_key = f"{job_type.value}.{brand.value}" if brand else job_type.value
+    async def publish(self, job_type: JobType, message: dict, *, brand: Brand) -> bool:
+        routing_key = f"{job_type.value}.{brand.value}"
         body_str = json.dumps(message, ensure_ascii=False)
         body_bytes = body_str.encode()
+
         for attempt in range(MAX_PUBLISH_ATTEMPTS):
             try:
                 await self.ensure()
@@ -53,7 +67,7 @@ class RabbitJobQueue:
                     correlation_id=message.get("dedup_key"),
                     headers={
                         "attempt": 0,
-                        "brand": brand.value if brand else None,
+                        "brand": brand.value,
                         "job_type": job_type.value,
                     },
                 )
@@ -62,7 +76,7 @@ class RabbitJobQueue:
                     "msg.publish",
                     extra={
                         "job_type": job_type.value,
-                        "brand": brand.value if brand else None,
+                        "brand": brand.value,
                         "correlation_id": message.get("dedup_key"),
                     },
                 )
@@ -78,7 +92,7 @@ class RabbitJobQueue:
                 "routing_key": routing_key,
                 "body": body_str,
                 "job_type": job_type.value,
-                "brand": brand.value if brand else None,
+                "brand": brand.value,
                 "total_attempts": MAX_PUBLISH_ATTEMPTS,
                 "correlation_id": message.get("dedup_key"),
             },
@@ -90,29 +104,29 @@ class RabbitJobQueue:
         job_type: JobType,
         handler: Callable[[dict], Awaitable[bool]],
         *,
-        brand: str | None = None,
+        brand: Brand,
         prefetch: int = 4,
     ) -> None:
         channel = await self.ensure()
         await channel.set_qos(prefetch)
-        await self._declare_topology(job_type)
-        if brand:
-            # отдельная очередь под бренд (опционально). Если не нужно — уберите этот блок.
-            queue = await channel.declare_queue(
-                name=f"jobs.{job_type.value}.{brand}",
-                durable=True,
-                arguments={
-                    "x-dead-letter-exchange": DLX,
-                    "x-dead-letter-routing-key": f"{job_type.value}.retry.1",
-                },
-            )
-            await queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.{brand}")
-        else:
-            queue = await channel.get_queue(f"jobs.{job_type.value}")
+
+        await self._declare_brand_topology(job_type, brand)
+
+        queue = await channel.declare_queue(
+            name=f"jobs.{job_type.value}.{brand.value}",
+            durable=True,
+            arguments={
+                "x-dead-letter-exchange": DLX,
+                "x-dead-letter-routing-key": f"{job_type.value}.{brand.value}.retry.1",
+            },
+        )
+        await queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.{brand.value}")
 
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 await self._process_message(job_type, message, handler)
+
+    # ---------- Соединение / обменники ----------
 
     async def ensure(self) -> AbstractRobustChannel:
         async with self._lock:
@@ -174,23 +188,40 @@ class RabbitJobQueue:
             await self.close()
             raise
 
-    async def _declare_topology(self, job_type: JobType) -> None:
-        self.logger.debug("topology.declare.start", extra={"job_type": job_type.value})
+    # ---------- Топология (бренд-локальная) ----------
+
+    async def _declare_brand_topology(self, job_type: JobType, brand: Brand) -> None:
+        """
+        Создаёт:
+          - jobs.<job_type>.<brand>
+          - jobs.<job_type>.<brand>.retry.<i> (DLX -> либо следующая retry, либо обратно в main)
+          - jobs.<job_type>.<brand>.dead
+        """
+        self.logger.debug(
+            "topology.declare.brand.start", extra={"job_type": job_type.value, "brand": brand.value},
+        )
         channel = await self.ensure()
+
+        # Main queue
         main_queue = await channel.declare_queue(
-            name=f"jobs.{job_type.value}",
+            name=f"jobs.{job_type.value}.{brand.value}",
             durable=True,
             arguments={
                 "x-dead-letter-exchange": DLX,
-                "x-dead-letter-routing-key": f"{job_type.value}.retry.1",
+                "x-dead-letter-routing-key": f"{job_type.value}.{brand.value}.retry.1",
             },
         )
-        await main_queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.#")
+        await main_queue.bind(self._jobs_exchange, routing_key=f"{job_type.value}.{brand.value}")
 
+        # Retry queues
         for i, delay in enumerate(RETRY_DELAYS, start=1):
-            next_key = f"{job_type.value}" if i == len(RETRY_DELAYS) else f"{job_type.value}.retry.{i + 1}"
+            next_key = (
+                f"{job_type.value}.{brand.value}"
+                if i == len(RETRY_DELAYS)
+                else f"{job_type.value}.{brand.value}.retry.{i + 1}"
+            )
             queue = await channel.declare_queue(
-                name=f"jobs.{job_type.value}.retry.{i}",
+                name=f"jobs.{job_type.value}.{brand.value}.retry.{i}",
                 durable=True,
                 arguments={
                     "x-message-ttl": delay * 1000,
@@ -198,14 +229,19 @@ class RabbitJobQueue:
                     "x-dead-letter-routing-key": next_key,
                 },
             )
-            await queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.retry.{i}")
+            await queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.{brand.value}.retry.{i}")
 
+        # Dead queue
         dead_queue = await channel.declare_queue(
-            name=f"jobs.{job_type.value}.dead",
+            name=f"jobs.{job_type.value}.{brand.value}.dead",
             durable=True,
         )
-        await dead_queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.dead")
-        self.logger.debug("topology.declare.completed", extra={"job_type": job_type.value})
+        await dead_queue.bind(self._dlx_exchange, routing_key=f"{job_type.value}.{brand.value}.dead")
+        self.logger.debug(
+            "topology.declare.brand.completed", extra={"job_type": job_type.value, "brand": brand.value},
+        )
+
+    # ---------- Обработка сообщений ----------
 
     async def _process_message(
         self,
@@ -218,7 +254,7 @@ class RabbitJobQueue:
             "msg.received", extra={**extra, "attempt": int((message.headers or {}).get("attempt", 0))},
         )
         try:
-            payload = json.loads(message.body.decode("utf-8"))
+            payload = json.loads(message.body.decode())
         except Exception:
             # нечитабельные сообщения — сразу в dead
             await message.reject(requeue=False)
@@ -226,7 +262,6 @@ class RabbitJobQueue:
             self.logger.error("msg.dead.unparseable", extra=extra)
             return
 
-        # attempts
         headers = dict(message.headers or {})
         attempt = int(headers.get("attempt", 0))
 
@@ -259,8 +294,17 @@ class RabbitJobQueue:
         message: AbstractIncomingMessage,
         headers: dict,
     ) -> None:
+        """
+        Перекидывает в бренд-локальную retry-очередь через DLX.
+        Brand обязателен (кладётся в headers при publish).
+        """
         await self.ensure()
-        # публикуем в соответствующую retry-очередь через DLX
+        brand = headers.get("brand")
+        if not brand:
+            self.logger.error("msg.retry.no_brand_in_headers", extra={"job_type": job_type.value})
+            brand = "unknown"
+
+        routing_key = f"{job_type.value}.{brand}.retry.{attempt}"
         new_msg = aio_pika.Message(
             body=message.body,
             content_type=message.content_type,
@@ -268,7 +312,7 @@ class RabbitJobQueue:
             headers=headers | {"attempt": attempt},
             correlation_id=message.correlation_id,
         )
-        await self._dlx_exchange.publish(new_msg, routing_key=f"{job_type.value}.retry.{attempt}")
+        await self._dlx_exchange.publish(new_msg, routing_key=routing_key)
         await message.ack()
 
     async def _send_to_dead(
@@ -277,17 +321,32 @@ class RabbitJobQueue:
         message: AbstractIncomingMessage,
         headers: dict | None = None,
     ) -> None:
+        """
+        Кладёт сообщение в бренд-локальную dead-очередь.
+        Brand обязателен (берём из headers).
+        """
         await self.ensure()
+        local_headers = headers or message.headers or {}
+        brand = local_headers.get("brand")
+        if not brand:
+            self.logger.error("msg.dead.no_brand_in_headers", extra={"job_type": job_type.value})
+            brand = "unknown"
+
+        routing_key = f"{job_type.value}.{brand}.dead"
         dead_msg = aio_pika.Message(
             body=message.body,
             content_type=message.content_type,
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            headers=headers or message.headers,
+            headers=local_headers,
         )
-        await self._dlx_exchange.publish(dead_msg, routing_key=f"{job_type.value}.dead")
+        await self._dlx_exchange.publish(dead_msg, routing_key=routing_key)
 
 
-async def create_job_queue(rabbitmq_url: str) -> RabbitJobQueue:
+async def create_job_queue(rabbitmq_url: str, brand: Brand) -> RabbitJobQueue:
+    """
+    Возвращает экземпляр очереди. Обменники создаются при первом ensure()/reconnect().
+    Топология очередей объявляется в consume(...) под конкретный brand/job_type.
+    """
     job_queue = RabbitJobQueue(rabbitmq_url)
-    await job_queue.setup_topology(JobType.all())
+    await job_queue.setup_brand_topology(JobType.all(), brand)
     return job_queue

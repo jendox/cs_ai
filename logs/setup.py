@@ -61,6 +61,7 @@ def build_logging_config(
             "zendesk_poller": {"level": "DEBUG" if env == LogEnvironment.DEV else "INFO"},
             "zendesk_client": {"level": "DEBUG" if env == LogEnvironment.DEV else "WARNING"},
             "jobs.queue": {"level": "DEBUG" if env == LogEnvironment.DEV else "INFO"},
+            "worker.initial_reply": {"level": "DEBUG" if env == LogEnvironment.DEV else "INFO"},
             "db.repository": {"level": "WARNING"},
         },
     }

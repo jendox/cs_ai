@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -41,8 +41,8 @@ class Base(DeclarativeBase):
 class Ticket(Base):
     __tablename__ = "tickets"
 
-    ticket_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    brand_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    ticket_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     observing: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -69,7 +69,7 @@ class Event(Base):
     source_id: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, nullable=False)
     author_role: Mapped[str | None] = mapped_column(String)
-    author_id: Mapped[int | None] = mapped_column(Integer)
+    author_id: Mapped[int | None] = mapped_column(BigInteger)
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     has_robot_tag: Mapped[bool] = mapped_column(Boolean, default=False)
     body: Mapped[str | None] = mapped_column(Text)

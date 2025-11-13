@@ -3,42 +3,57 @@ import logging.config
 import anyio
 
 import config
+import services
+from db.sa import Database
 from libs.zendesk_client.client import create_zendesk_client
 from libs.zendesk_client.models import Brand
 from logs import LogEnvironment, TelegramHandler, build_logging_config
-from zendesk import Poller
+from workers import InitialReplyWorker
+from zendesk.poller import Poller
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cs")
 
 
 async def main():
-    # ticket 109793
+    brand = Brand.SUPERSELF
+    logger.info("app.up", extra={"brand": brand.value})
     try:
         settings = config.app_settings.get()
-        logger.info("app.up", extra={"brand": Brand.SUPERSELF.value})
-        async with create_zendesk_client(settings.zendesk) as client:
-            poller = Poller(client, Brand.SUPERSELF)
+        amqp_url = settings.rabbitmq.amqp_url
+        async with (
+            Database.lifespan(url=settings.postgres.url),
+            create_zendesk_client(settings.zendesk) as zendesk_client,
+        ):
+            tasks = [
+                Poller(zendesk_client, amqp_url, brand),
+                InitialReplyWorker(zendesk_client, amqp_url, brand),
+                # UserReplyWorker(zendesk_client, amqp_url, brand),
+                # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
+                # TicketClosedWorker(zendesk_client, amqp_url, brand),
+            ]
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(poller.start, settings.rabbitmq.amqp_url)
+                for task in tasks:
+                    tg.start_soon(services.supervise, task)
 
     except anyio.get_cancelled_exc_class():
-        logger.info("Прервано пользователем")
-    except Exception as exc:
-        logger.error(exc, exc_info=True)
+        logger.info("app.cancelled")
+    except Exception:
+        logger.error("app.fatal", exc_info=True)
     finally:
-        logger.info("app.shutdown", extra={"brand": Brand.SUPERSELF.value})
+        logger.info("app.shutdown", extra={"brand": brand.value})
 
 
 if __name__ == "__main__":
     app_settings = config.AppSettings.load()
     config.app_settings.set(app_settings)
-    tg_handler = None
+    telegram_handler = None
     if app_settings.telegram.enabled:
-        tg_handler = TelegramHandler(
+        telegram_handler = TelegramHandler(
             bot_token=app_settings.telegram.bot_token.get_secret_value(),
             chat_id=app_settings.telegram.chat_id,
             level=app_settings.telegram.min_level,
         )
-    logging.config.dictConfig(build_logging_config(LogEnvironment.DEV, json_logs=True, telegram_handler=tg_handler))
+    log_config = build_logging_config(LogEnvironment.DEV, json_logs=True, telegram_handler=telegram_handler)
+    logging.config.dictConfig(log_config)
     anyio.run(main)

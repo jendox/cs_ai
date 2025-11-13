@@ -1,8 +1,8 @@
 """
 
-Revision ID: b4725cea69cf
+Revision ID: aa560145c29d
 Revises:
-Create Date: 2025-10-23 11:46:00.609311
+Create Date: 2025-11-12 22:28:13.874780
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import db
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b4725cea69cf'
+revision: str = 'aa560145c29d'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -36,8 +36,8 @@ def upgrade() -> None:
     )
     op.create_index('idx_locks_until', 'locks', ['until'], unique=False)
     op.create_table('tickets',
-    sa.Column('ticket_id', sa.Integer(), nullable=False),
-    sa.Column('brand_id', sa.Integer(), nullable=False),
+    sa.Column('ticket_id', sa.BigInteger(), nullable=False),
+    sa.Column('brand_id', sa.BigInteger(), nullable=False),
     sa.Column('status', sa.String(), nullable=False),
     sa.Column('updated_at', db.models.UTCDateTime(timezone=True), nullable=False),
     sa.Column('observing', sa.Boolean(), nullable=False),
@@ -46,17 +46,17 @@ def upgrade() -> None:
     )
     op.create_index('idx_tickets_brand_status', 'tickets', ['brand_id', 'status', 'updated_at'], unique=False)
     op.create_table('events',
-    sa.Column('event_key', sa.String(), nullable=False),
-    sa.Column('ticket_id', sa.Integer(), nullable=False),
+    sa.Column('event_key', sa.String(length=32), nullable=False),
+    sa.Column('ticket_id', sa.BigInteger(), nullable=False),
     sa.Column('source_type', sa.String(), nullable=False),
     sa.Column('source_id', sa.String(), nullable=False),
     sa.Column('kind', sa.String(), nullable=False),
     sa.Column('author_role', sa.String(), nullable=True),
-    sa.Column('author_id', sa.Integer(), nullable=True),
+    sa.Column('author_id', sa.BigInteger(), nullable=True),
     sa.Column('is_private', sa.Boolean(), nullable=False),
     sa.Column('has_robot_tag', sa.Boolean(), nullable=False),
     sa.Column('body', sa.Text(), nullable=True),
-    sa.Column('body_hash', sa.String(), nullable=True),
+    sa.Column('body_hash', sa.String(length=32), nullable=True),
     sa.Column('created_at', db.models.UTCDateTime(timezone=True), nullable=False),
     sa.Column('inserted_at', db.models.UTCDateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['ticket_id'], ['tickets.ticket_id'], onupdate='CASCADE', ondelete='CASCADE'),
@@ -67,8 +67,8 @@ def upgrade() -> None:
     op.create_index('idx_events_ticket_created', 'events', ['ticket_id', 'created_at'], unique=False)
     op.create_table('our_posts',
     sa.Column('post_key', sa.String(), nullable=False),
-    sa.Column('ticket_id', sa.Integer(), nullable=False),
-    sa.Column('body_hash', sa.String(), nullable=False),
+    sa.Column('ticket_id', sa.BigInteger(), nullable=False),
+    sa.Column('body_hash', sa.String(length=32), nullable=False),
     sa.Column('channel', sa.String(), nullable=True),
     sa.Column('created_at', db.models.UTCDateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['ticket_id'], ['tickets.ticket_id'], onupdate='CASCADE', ondelete='CASCADE'),

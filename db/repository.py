@@ -2,8 +2,9 @@ import hashlib
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import and_, case, delete, literal, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datetime_utils
@@ -46,6 +47,8 @@ class Repository:
         Performs an INSERT or UPDATE operation for the given ticket. If a ticket with the same ID
         already exists, it will be updated. Otherwise, a new ticket will be inserted.
 
+        observing := CASE WHEN tickets.observing = FALSE THEN FALSE ELSE EXCLUDED.observing END
+
         Args:
             ticket: The Ticket object to upsert
             observing: Whether the ticket is being observed (default: True)
@@ -54,31 +57,35 @@ class Repository:
         Returns:
             bool: True if the ticket was newly inserted, False if an existing ticket was updated
         """
-        exists_stmt = select(TicketEntity.ticket_id).where(TicketEntity.ticket_id == ticket.id)
-        exists_result = await self._session.execute(exists_stmt)
-        exists = exists_result.scalar_one_or_none() is not None
-
         last_seen_at = last_seen_at or datetime_utils.utcnow()
-        stmt = sqlite_insert(TicketEntity).values(
+        existed = await self._session.scalar(
+            select(TicketEntity.ticket_id).where(TicketEntity.ticket_id == ticket.id),
+        )
+
+        stmt = pg_insert(TicketEntity).values(
             ticket_id=ticket.id,
             brand_id=ticket.brand.value,
-            status=ticket.status,
+            status=ticket.status.value,
             updated_at=ticket.updated_at,
             observing=observing,
             last_seen_at=last_seen_at,
         )
+        # - observing: сохраняем False, если он уже False; иначе берём входящее значение (EXCLUDED.observing)
         stmt = stmt.on_conflict_do_update(
             index_elements=[TicketEntity.ticket_id],
             set_={
                 "brand_id": ticket.brand.value,
-                "status": ticket.status,
+                "status": ticket.status.value,
                 "updated_at": ticket.updated_at,
-                "observing": observing,
                 "last_seen_at": last_seen_at,
+                "observing": case(
+                    (TicketEntity.observing == literal(False), literal(False)),
+                    else_=stmt.excluded.observing,
+                ),
             },
         )
         await self._session.execute(stmt)
-        return not exists
+        return existed is None
 
     async def get_ticket_by_id(self, ticket_id: int) -> TicketEntity:
         stmt = (
@@ -97,7 +104,7 @@ class Repository:
     # --- Events ---
     async def insert_event(self, event: Event) -> bool:
         stmt = (
-            sqlite_insert(EventEntity)
+            pg_insert(EventEntity)
             .values(**event.model_dump())
             .on_conflict_do_nothing(index_elements=[EventEntity.event_key.key])
         )
@@ -108,7 +115,7 @@ class Repository:
     async def record_our_post(self, *, ticket_id: int, body_hash: str, channel: str = "private") -> bool:
         post_key = hashlib.md5(f"{ticket_id}:{body_hash}".encode()).hexdigest()
         stmt = (
-            sqlite_insert(OurPostEntity)
+            pg_insert(OurPostEntity)
             .values(
                 post_key=post_key,
                 ticket_id=ticket_id,
@@ -116,9 +123,17 @@ class Repository:
                 channel=channel,
                 created_at=datetime_utils.utcnow(),
             )
-            .prefix_with("OR IGNORE"))
-        res = await self._session.execute(stmt)
-        return res.rowcount == 1
+            .on_conflict_do_nothing(index_elements=[OurPostEntity.post_key])
+        )
+        try:
+            result = await self._session.execute(stmt)
+            return result.rowcount == 1
+        except IntegrityError as e:
+            self.logger.warning("our_post.insert.integrity", extra={"error": str(e.orig)})
+            return False
+        except DBAPIError as e:
+            self.logger.error("our_post.insert.dbapi", extra={"error": str(e.orig)}, exc_info=True)
+            raise
 
     # --- Checkpoints ---
     async def get_checkpoint(self, name: str) -> datetime | None:
@@ -131,7 +146,7 @@ class Repository:
     async def set_checkpoint(self, name: str, value: datetime):
         now = datetime_utils.utcnow()
         stmt = (
-            sqlite_insert(CheckpointEntity)
+            pg_insert(CheckpointEntity)
             .values(name=name, value=value, updated_at=now)
             .on_conflict_do_update(
                 index_elements=[CheckpointEntity.name],
@@ -152,22 +167,22 @@ class Repository:
         now = datetime_utils.utcnow()
         until = now + timedelta(seconds=ttl_seconds)
         stmt = (
-            sqlite_insert(LockEntity)
+            pg_insert(LockEntity)
             .values(name=name, holder=holder, until=until)
             .on_conflict_do_update(
                 index_elements=[LockEntity.name],
                 set_={"holder": holder, "until": until},
                 where=LockEntity.until <= now,
             )
+            .returning(LockEntity.name)
         )
-        await self._session.execute(stmt)
-
-        result = await self._session.execute(
-            select(LockEntity.holder, LockEntity.until).where(LockEntity.name == name),
-        )
-        current = result.scalar_one_or_none()
-        if current != holder:
-            raise AcquireLockError(name, current)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is None:
+            current_holder = await self._session.scalar(
+                select(LockEntity.holder).where(LockEntity.name == name),
+            )
+            raise AcquireLockError(name, current_holder)
         self.logger.debug("lock.acquired", extra={"data": {"name": name, "holder": holder}})
 
     async def release_lock(self, *, name: str, holder: str):

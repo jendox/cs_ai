@@ -1,0 +1,18 @@
+import logging
+from abc import ABC, abstractmethod
+
+from libs.zendesk_client.models import Brand
+
+__all__ = (
+    "Service",
+)
+
+
+class Service(ABC):
+    def __init__(self, name: str, brand: Brand) -> None:
+        self.name = name
+        self.brand = brand
+        self.logger = logging.getLogger(name)
+
+    @abstractmethod
+    async def run(self) -> None: ...

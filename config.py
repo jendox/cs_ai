@@ -38,11 +38,27 @@ class TelegramSettings(BaseModel):
     min_level: str = "CRITICAL"
 
 
+class PostgresSettings(BaseModel):
+    user: str
+    password: SecretStr
+    host: str
+    port: int
+    db: str
+
+    @property
+    def url(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.user}:{self.password.get_secret_value()}"
+            f"@{self.host}:{self.port}/{self.db}"
+        )
+
+
 class AppSettings(BaseSettings):
     zendesk: ZendeskSettings
     rabbitmq: RabbitMQSettings
     amazon: AmazonSettings
     telegram: TelegramSettings
+    postgres: PostgresSettings
 
     model_config = SettingsConfigDict(
         env_file=".env",

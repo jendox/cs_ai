@@ -10,3 +10,4 @@ Makefile
 rabbitmq_data/
 docker-compose.yml
 init_rabbit.sh
+pg_data/

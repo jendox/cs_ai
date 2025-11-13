@@ -1,2 +1,2 @@
 from .models import Base
-from .sa import SessionLocal
+from .sa import session_local

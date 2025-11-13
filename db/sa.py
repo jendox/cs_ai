@@ -1,16 +1,85 @@
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 __all__ = (
-    "SessionLocal",
+    "Database",
+    "session_local",
 )
 
-DATABASE_URL = "sqlite+aiosqlite:///state.db"
+URL_PARTS = 2
 
-engine = create_async_engine(
-    DATABASE_URL,
-    future=True,
-    pool_pre_ping=True,
-    connect_args={"timeout": 10, "check_same_thread": False},
-)
+logger = logging.getLogger("db.sa")
 
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+class Database:
+    engine: AsyncEngine | None = None
+    session_maker: async_sessionmaker[AsyncSession] | None = None
+
+    @classmethod
+    async def _init(cls, *, url: str, echo: bool) -> None:
+        cls.engine = create_async_engine(
+            url=url,
+            echo=echo,
+            pool_pre_ping=True,
+            pool_size=10,
+            max_overflow=10,
+            future=True,
+        )
+        cls.session_maker = async_sessionmaker(
+            cls.engine, expire_on_commit=False, class_=AsyncSession,
+        )
+        logger.info("db.engine.initialized", extra={"url": _redact_url(url)})
+
+    @classmethod
+    async def _close(cls) -> None:
+        if cls.engine is not None:
+            await cls.engine.dispose()
+            logger.info("db.engine.closed")
+        cls.engine = None
+        cls.session_maker = None
+
+    @classmethod
+    @asynccontextmanager
+    async def lifespan(cls, url: str, echo: bool = False):
+        await cls._init(url=url, echo=echo)
+        try:
+            yield
+        finally:
+            await cls._close()
+
+    @classmethod
+    def require_session_maker(cls) -> async_sessionmaker[AsyncSession]:
+        if cls.session_maker is None:
+            raise RuntimeError("DB session_maker is not initialized. Call Database.init() first.")
+        return cls.session_maker
+
+
+@asynccontextmanager
+async def session_local() -> AsyncIterator[AsyncSession]:
+    """
+    Удобный контекст для сессии, как вы уже используете:
+      async with session_local() as session:
+          ...
+    """
+    session_maker = Database.require_session_maker()
+    async with session_maker() as session:
+        yield session
+
+
+def _redact_url(url: str) -> str:
+    # Прячем пароль в логах
+    # postgresql+asyncpg://user:****@host:5432/db
+    try:
+        prefix, rest = url.split("://", 1)
+        creds_host = rest.split("@", 1)
+        if len(creds_host) == URL_PARTS:
+            creds, host = creds_host
+            if ":" in creds:
+                user, _ = creds.split(":", 1)
+                return f"{prefix}://{user}:****@{host}"
+    except Exception:
+        pass
+    return url
