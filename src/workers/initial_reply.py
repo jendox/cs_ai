@@ -1,5 +1,4 @@
 import hashlib
-import re
 import uuid
 from contextlib import contextmanager
 
@@ -11,62 +10,10 @@ from src.db.repositories import OurPostsRepository, TicketsRepository
 from src.jobs.models import InitialReplyMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand, Ticket, Via
+from src.libs.zendesk_client.models import Brand, Ticket
 from src.logs.filters import log_ctx
 from src.services import Service
-
-# ----------------------------- Служебный фильтр -----------------------------
-_SERVICE_SUBJECT_RE = re.compile(
-    r"(?i)\b("
-    r"out of office|auto[-\s]?reply|autoreply|automatic reply|delivery status notification|"
-    r"undelivered mail|delivery failure|mail delivery failed|read:\s|read receipt|vacation|"
-    r"daemon|mailer-daemon|postmaster|no[-\s]?reply|noreply"
-    r")\b",
-)
-
-_SERVICE_DESC_RE = re.compile(
-    r"(?i)\b("
-    r"do not reply|this is an automated message|auto[-\s]?generated|system notification|"
-    r"mailer-daemon|postmaster|bounce"
-    r")\b",
-)
-
-
-def _via_looks_system(via: Via | None = None) -> bool:
-    try:
-        ch = (via.channel or "").lower() if via else ""
-        # эвристики: системные каналы часто api, web_service, rule, trigger
-        return ch in {"api", "web_service", "rule", "trigger"}
-    except Exception:
-        return False
-
-
-def _is_service_ticket(ticket: Ticket) -> bool:
-    """
-    Простые эвристики для служебных тикетов.
-    При появлении "боевого" фильтра — подмените реализацию внутри.
-    """
-    subject = (ticket.subject or ticket.raw_subject or "").strip()
-    description = (ticket.description or "").strip()
-    tags = [s.lower() for s in (ticket.tags or [])]
-
-    # Явные теги
-    if any(tag in {"auto_reply", "autoreply", "system", "notification", "mailer-daemon"} for tag in tags):
-        return True
-
-    # Паттерны в теме/описании
-    if _SERVICE_SUBJECT_RE.search(subject):
-        return True
-    if _SERVICE_DESC_RE.search(description):
-        return True
-
-    # Канал источника
-    if _via_looks_system(ticket.via):
-        # чтобы не сработало на нормальные интеграции — усилим эвристику:
-        if not subject and not description:
-            return True
-
-    return False
+from src.tickets_filter.cache import tickets_filter_cache
 
 
 @contextmanager
@@ -119,8 +66,10 @@ class InitialReplyWorker(Service):
                 our_posts_repo = OurPostsRepository(session)
 
                 async with session.begin():
+                    tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
                     # Служебные тикеты — выключить наблюдение и завершить
-                    if _is_service_ticket(ticket):
+                    if tickets_filter.is_service_ticket(ticket):
+                        self.logger.info("tickets.filtered_as_service", extra={"ticket_id": ticket.id})
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Генерация первичного ответа
                     body = self._build_reply_body(ticket)

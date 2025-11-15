@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import re
+import typing
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from typing import Callable, Self
 
-from src.tickets_filter.dto import TicketsFilterRuleDTO
+if typing.TYPE_CHECKING:
+    from src.tickets_filter.dto import TicketsFilterRuleDTO
 
 __all__ = (
     "TicketsFilterRuleKind",

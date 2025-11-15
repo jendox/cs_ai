@@ -22,6 +22,7 @@ from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 from src.logs.filters import log_ctx
 from src.services import Service
+
 from .models import Event, EventAuthorRole, EventKind, EventSourceType
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5

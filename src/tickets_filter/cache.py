@@ -1,0 +1,69 @@
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db.repositories import CheckpointsRepository, TicketsFilterRuleRepository
+from src.libs.zendesk_client.models import Brand
+from src.tickets_filter.config import FilterConfig
+from src.tickets_filter.filter import TicketsFilter
+
+__all__ = (
+    "TicketsFilterCache",
+    "tickets_filter_cache",
+    "get_checkpoint_name",
+)
+
+CHECKPOINT_NAME_TEMPLATE = "tickets_filter_rules:{brand_id}"
+
+
+def get_checkpoint_name(brand: Brand) -> str:
+    return CHECKPOINT_NAME_TEMPLATE.format(brand_id=brand.value)
+
+
+@dataclass
+class _CacheEntry:
+    version: datetime | None
+    filter_: TicketsFilter
+
+
+class TicketsFilterCache:
+    def __init__(self):
+        self._by_brand: dict[int, _CacheEntry] = {}
+        self.logger = logging.getLogger("tickets_filter.cache")
+
+    async def get_filter(self, session: AsyncSession, brand: Brand) -> TicketsFilter:
+        checkpoints_repo = CheckpointsRepository(session)
+        rules_repo = TicketsFilterRuleRepository(session)
+
+        checkpoint_name = get_checkpoint_name(brand)
+        checkpoint_value = await checkpoints_repo.get_checkpoint(checkpoint_name)
+        cached = self._by_brand.get(brand.value)
+
+        if cached is not None and cached.version == checkpoint_value:
+            return cached.filter_
+
+        rules = await rules_repo.list_rules(is_active=True)
+        config = FilterConfig.from_rules(rules)
+        filter_ = TicketsFilter(config)
+
+        self._by_brand[brand.value] = _CacheEntry(
+            version=checkpoint_value,
+            filter_=filter_,
+        )
+        self.logger.info(
+            "reload",
+            extra={
+                "brand": brand.value,
+                "rules_count": len(rules),
+                "checkpoint": checkpoint_value,
+            },
+        )
+        return filter_
+
+    def clear(self) -> None:
+        self._by_brand.clear()
+
+
+tickets_filter_cache = TicketsFilterCache()

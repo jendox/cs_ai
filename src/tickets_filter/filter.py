@@ -276,7 +276,7 @@ class TicketsFilter:
 
         # 3. If no rule fires → ticket is treated as a user ticket by default
         self.logger.info(
-            "allow", extra=helpers.make_log_record(ticket),
+            "allow", extra=helpers.make_log_record(ticket, reason="no_rule_fires"),
         )
         return ServiceDecision(is_service=False, rule=None)
 
