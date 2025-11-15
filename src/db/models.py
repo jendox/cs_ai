@@ -174,11 +174,20 @@ class TicketsFilterRule(Base):
 
 # ========== TELEGRAM ==========
 
-class UserRole(Enum):
+class UserRole(str, Enum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
     USER = "user"
     ANONYMOUS = "anonymous"
+
+    @property
+    def level(self) -> int:
+        return {
+            UserRole.ANONYMOUS: 0,
+            UserRole.USER: 1,
+            UserRole.ADMIN: 2,
+            UserRole.SUPERADMIN: 3,
+        }[self]
 
 
 user_role_enum = ENUM(UserRole, name="user_role_enum")

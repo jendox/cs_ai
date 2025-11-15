@@ -14,6 +14,8 @@ __all__ = (
     "TicketsRepository",
 )
 
+MAX_ACTIVE_TICKETS_LIMIT = 20
+
 
 class TicketNotFound(Exception): ...
 
@@ -104,3 +106,31 @@ class TicketsRepository(BaseRepository):
             )
         )
         await self._session.execute(stmt)
+
+    async def mark_observed(
+        self,
+        ticket_id: int,
+        last_seen_at: datetime | None = None,
+    ) -> None:
+        now = last_seen_at or datetime_utils.utcnow()
+        stmt = (
+            update(TicketEntity)
+            .where(TicketEntity.ticket_id == ticket_id)
+            .values(
+                observing=True,
+                last_seen_at=now,
+            )
+        )
+        await self._session.execute(stmt)
+
+    async def get_observing_tickets(self, limit: int | None = None) -> list[TicketEntity]:
+        if limit is None:
+            limit = MAX_ACTIVE_TICKETS_LIMIT
+        stmt = (
+            select(TicketEntity)
+            .where(TicketEntity.observing.is_(True))
+            .order_by(TicketEntity.updated_at.desc())
+            .limit(min(limit, MAX_ACTIVE_TICKETS_LIMIT))
+        )
+        result = await self._session.scalars(stmt)
+        return list(result)

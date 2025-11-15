@@ -35,6 +35,14 @@ class Brand(int, Enum):
     SUPERSELF = 23064017794844
     SMARTPARTS = 23063999037340
 
+    @property
+    def short(self) -> str:
+        if self == Brand.SUPERSELF:
+            return "SS"
+        if self == Brand.SMARTPARTS:
+            return "SP"
+        return "??"
+
 
 class TicketStatus(str, Enum):
     NEW = "NEW"

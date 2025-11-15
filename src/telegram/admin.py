@@ -1,5 +1,5 @@
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -12,11 +12,12 @@ from src.db.repositories.telegram import TelegramUsersRepository, UserNotFound
 from src.libs.zendesk_client.models import Brand
 from src.logs.filters import log_ctx
 from src.services import Service
+from src.telegram.handlers import routers
 from src.telegram.middlewares import AuthenticationMiddleware
 
 
-@contextmanager
-def log_context(user_id: int, brand: Brand):
+@asynccontextmanager
+async def log_context(user_id: int, brand: Brand):
     token = log_ctx.set({
         "brand": brand.value,
         "user_id": user_id,
@@ -46,9 +47,9 @@ class TelegramAdmin(Service):
             return role
 
         async with session_local() as session:
-            repo = TelegramUsersRepository(session)
+            users_repo = TelegramUsersRepository(session)
             try:
-                user = await repo.get_by_telegram_id(telegram_id)
+                user = await users_repo.get_by_telegram_id(telegram_id)
                 role = UserRole(user.role)
             except UserNotFound:
                 role = UserRole.ANONYMOUS
@@ -74,8 +75,10 @@ class TelegramAdmin(Service):
         await self._ensure_superadmin()
 
         dp = Dispatcher()
-        dp.message.middleware(AuthenticationMiddleware(self))
-        dp.callback_query.middleware(AuthenticationMiddleware(self))
+        dp.message.outer_middleware(AuthenticationMiddleware(self))
+        dp.callback_query.outer_middleware(AuthenticationMiddleware(self))
+
+        dp.include_routers(*routers)
 
         bot = Bot(
             token=self._settings.bot_token.get_secret_value(),
