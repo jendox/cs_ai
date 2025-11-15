@@ -22,7 +22,6 @@ from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 from src.logs.filters import log_ctx
 from src.services import Service
-
 from .models import Event, EventAuthorRole, EventKind, EventSourceType
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5
@@ -129,9 +128,8 @@ class Poller(Service):
         return lastest_seen
 
     @staticmethod
-    async def _create_status_event(tickets_repo: TicketsRepository, ticket: Ticket) -> Event:
-        prev_status = await tickets_repo.get_ticket_status(ticket.id)
-        if ticket.status != TicketStatus(prev_status):
+    async def _create_status_event(prev_status: TicketStatus, ticket: Ticket) -> Event:
+        if ticket.status != prev_status:
             return Event(
                 ticket_id=ticket.id,
                 source_type=EventSourceType.STATUS,
@@ -169,18 +167,24 @@ class Poller(Service):
             brand=self.brand,
             statuses=TicketStatus.all(),
         ):
+            ticket_id = updated_ticket.id
             try:
+                # Получаем observing тикета. Если False, тикет исключен из наблюдения, пропускаем
+                ticket_entity = await tickets_repo.get_ticket_by_id(ticket_id)
+                if not ticket_entity.observing:
+                    await self._update_db_ticket(updated_ticket)
+                    continue
                 # Сначала проходимся по измененным статусам
-                event = await self._create_status_event(tickets_repo, updated_ticket)
+                event = await self._create_status_event(TicketStatus(ticket_entity.status), updated_ticket)
             except TicketNotFound:
-                self.logger.warning("ticket.not_found", extra={"ticket_id": updated_ticket.id})
+                self.logger.warning("ticket.not_found", extra={"ticket_id": ticket_id})
                 continue  # we only track tickets created after poller started
             except NoStatusChange:
-                self.logger.debug("ticket.status_unchanged", extra={"ticket_id": updated_ticket.id})
+                self.logger.debug("ticket.status_unchanged", extra={"ticket_id": ticket_id})
             else:
                 yield event, updated_ticket
             # Теперь получаем добавившиеся комментарии, если они есть
-            async for event in self._iter_new_comments(updated_ticket.id, updated_after):
+            async for event in self._iter_new_comments(ticket_id, updated_after):
                 yield event, updated_ticket
 
     async def _update_db_ticket(self, ticket: Ticket):

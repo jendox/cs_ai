@@ -35,6 +35,7 @@ class TicketsRepository(BaseRepository):
         already exists, it will be updated. Otherwise, a new ticket will be inserted.
 
         observing := CASE WHEN tickets.observing = FALSE THEN FALSE ELSE EXCLUDED.observing END
+        !!! Important: This method never change observing from False to True !!!
 
         Args:
             ticket: The Ticket object to upsert
