@@ -34,7 +34,7 @@ class TicketClosedWorker(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
-    ):
+    ) -> None:
         super().__init__(name="ticket_closed", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url

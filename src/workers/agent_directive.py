@@ -34,7 +34,7 @@ class AgentDirectiveWorker(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
-    ):
+    ) -> None:
         super().__init__(name="agent_directive", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url

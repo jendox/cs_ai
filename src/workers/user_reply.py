@@ -5,8 +5,7 @@ from contextlib import contextmanager
 import httpx
 from pydantic import ValidationError
 
-from src.db import session_local
-from src.db.repository import Repository
+from src.db.repositories import OurPostsRepository
 from src.jobs.models import JobType, UserReplyMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -38,7 +37,7 @@ class UserReplyWorker(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
-    ):
+    ) -> None:
         super().__init__(name="user_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
@@ -75,18 +74,21 @@ class UserReplyWorker(Service):
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return None
 
-    async def _save_reply(self, body: str, ticket_id: int, channel: str) -> bool:
+    async def _save_reply(
+        self,
+        our_post_repo: OurPostsRepository,
+        body: str,
+        ticket_id: int,
+        channel: str,
+    ) -> bool:
         body_hash = hashlib.md5(body.encode()).hexdigest()
-        async with session_local() as session:
-            repo = Repository(session)
-            async with session.begin():
-                recorded = await repo.record_our_post(
-                    ticket_id=ticket_id, body_hash=body_hash, channel=channel,
-                )
-                if not recorded:
-                    # такой ответ уже фиксировали — не дублируем
-                    self.logger.info("our_post.duplicate_skip", extra={"ticket_id": ticket_id})
-                    return False
+        recorded = await our_post_repo.record_our_post(
+            ticket_id=ticket_id, body_hash=body_hash, channel=channel,
+        )
+        if not recorded:
+            # такой ответ уже фиксировали — не дублируем
+            self.logger.info("our_post.duplicate_skip", extra={"ticket_id": ticket_id})
+            return False
         self.logger.info("our_post.reply.saved", extra={"ticket_id": ticket_id})
         return True
 

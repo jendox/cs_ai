@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -123,3 +123,48 @@ class Lock(Base):
     __table_args__ = (
         Index("idx_locks_until", "until"),
     )
+
+
+class TicketsFilterRule(Base):
+    __tablename__ = "tickets_filter_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # тип правила: system_domain / system_address / subject_pattern / ...
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    # значение правила:
+    # - домен: "amazon.com"; email: "no-reply@amazon.com"; тег: "servicemessage"
+    # - regex-паттерн: r"^new customer message on"
+    value: Mapped[str] = mapped_column(String(128), nullable=False)
+    # интерпретировать value как регулярное выражение?
+    # (для subject_pattern / api_allowed_pattern почти всегда True,
+    # но поле универсальное)
+    is_regex: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # brand_id: NULL -> глобальное правило, иначе действует только для бренда
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    # via_channel: NULL -> любой канал, иначе только, например, "email" / "api"
+    via_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # активность правила (вместо физического удаления)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # человекочитаемый комментарий
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # кто создал / обновил (можно класть telegram username/id)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_service_filter_rules_kind_brand_channel",
+            "kind",
+            "brand_id",
+            "via_channel",
+            "is_active",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ServiceFilterRule id={self.id} kind={self.kind!r} value={self.value!r} "
+            f"brand_id={self.brand_id} via_channel={self.via_channel!r} is_active={self.is_active}>"
+        )

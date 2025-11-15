@@ -8,7 +8,14 @@ import anyio
 
 from src import datetime_utils
 from src.db import session_local
-from src.db.repository import AcquireLockError, Repository, TicketNotFound
+from src.db.repositories import (
+    AcquireLockError,
+    CheckpointsRepository,
+    EventsRepository,
+    LocksRepository,
+    TicketNotFound,
+    TicketsRepository,
+)
 from src.jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
 from src.jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -49,7 +56,6 @@ class Poller(Service):
         super().__init__(name="zendesk_poller", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
-        self.repo: Repository | None = None
         self.job_queue: RabbitJobQueue | None = None
 
     @staticmethod
@@ -57,18 +63,28 @@ class Poller(Service):
         """
         Сохраняет тикет в БД и возвращает, был ли он новым.
 
-        ВАЖНО:
-        Этот апдейт должен выполняться ПЕРЕД публикацией задач в очередь.
-        Иначе возможна гонка с воркерами:
-          - воркер создаёт our_posts с FK на tickets.ticket_id;
-          - если тикета ещё нет (транзакция не закоммичена), получим ForeignKeyViolation.
+        ВАЖНО: этот апдейт выполняется в ОТДЕЛЬНОЙ транзакции, НЕ в общей
+        транзакции poller-итерации.
+
+        Причина — гонка с воркером:
+          1) Поллер обнаруживает новый тикет и публикует задачу в RabbitMQ.
+          2) Воркер почти сразу берёт задачу и пытается вставить/обновить
+             связанные записи (our_posts и т.п.), у которых есть FK на tickets.ticket_id.
+          3) Если бы запись о тикете находилась в той же транзакции, что и логика
+             poller-итерации (session.begin() в _run_polling_cycle), воркер мог бы
+             увидеть задачу РАНЬШЕ, чем коммит транзакции, и словить ForeignKeyViolation.
 
         Поэтому:
-          1) _upsert_ticket вызывается и дожидается коммита;
-          2) только после этого публикуем джобы в RabbitMQ.
+          * _upsert_ticket использует отдельную сессию + отдельную транзакцию,
+            которая гарантированно коммитится ДО публикации задач.
+          * После возврата из _upsert_ticket запись о тикете уже есть в БД, и воркер,
+            прочитав задачу из очереди, не упадёт на FK.
+
+        Именно из-за этого инварианта _upsert_ticket НЕ интегрирован в общую
+        транзакцию _run_polling_cycle и не использует переданный извне session.
         """
         async with session_local() as session:
-            repo = Repository(session)
+            repo = TicketsRepository(session)
             async with session.begin():
                 is_new = await repo.upsert_ticket_and_check_new(
                     ticket=ticket,
@@ -76,17 +92,22 @@ class Poller(Service):
                 )
         return is_new
 
-    async def _bootstrap_if_needed(self, cp_tickets: str, cp_events: str) -> tuple[datetime, datetime]:
-        tickets_from = await self.repo.get_checkpoint(cp_tickets)
+    @staticmethod
+    async def _bootstrap_if_needed(
+        checkpoints_repo: CheckpointsRepository,
+        cp_tickets: str,
+        cp_events: str,
+    ) -> tuple[datetime, datetime]:
+        tickets_from = await checkpoints_repo.get_checkpoint(cp_tickets)
         if not tickets_from:
             # Только тикеты, обновлённые после запуска — для "холодного старта"
             tickets_from = _get_new_checkpoint(TICKETS_SAFETY_BACKSHIFT_MIN)
-            await self.repo.set_checkpoint(cp_tickets, tickets_from)
+            await checkpoints_repo.set_checkpoint(cp_tickets, tickets_from)
 
-        events_from = await self.repo.get_checkpoint(cp_events)
+        events_from = await checkpoints_repo.get_checkpoint(cp_events)
         if not events_from:
             events_from = _get_new_checkpoint(EVENTS_SAFETY_BACKSHIFT_MIN)
-            await self.repo.set_checkpoint(cp_events, events_from)
+            await checkpoints_repo.set_checkpoint(cp_events, events_from)
 
         return tickets_from, events_from
 
@@ -107,8 +128,9 @@ class Poller(Service):
                 lastest_seen = max(lastest_seen, pivot)
         return lastest_seen
 
-    async def _create_status_event(self, ticket: Ticket) -> Event:
-        prev_status = await self.repo.get_ticket_status(ticket.id)
+    @staticmethod
+    async def _create_status_event(tickets_repo: TicketsRepository, ticket: Ticket) -> Event:
+        prev_status = await tickets_repo.get_ticket_status(ticket.id)
         if ticket.status != TicketStatus(prev_status):
             return Event(
                 ticket_id=ticket.id,
@@ -137,7 +159,11 @@ class Poller(Service):
                 inserted_at=datetime_utils.utcnow(),
             )
 
-    async def _iter_events(self, updated_after: datetime) -> AsyncGenerator[tuple[Event, Ticket], None]:
+    async def _iter_events(
+        self,
+        tickets_repo: TicketsRepository,
+        updated_after: datetime,
+    ) -> AsyncGenerator[tuple[Event, Ticket], None]:
         async for updated_ticket in self._zendesk_client.iter_tickets(
             updated_after=updated_after,
             brand=self.brand,
@@ -145,7 +171,7 @@ class Poller(Service):
         ):
             try:
                 # Сначала проходимся по измененным статусам
-                event = await self._create_status_event(updated_ticket)
+                event = await self._create_status_event(tickets_repo, updated_ticket)
             except TicketNotFound:
                 self.logger.warning("ticket.not_found", extra={"ticket_id": updated_ticket.id})
                 continue  # we only track tickets created after poller started
@@ -203,10 +229,15 @@ class Poller(Service):
                 brand=self.brand,
             )
 
-    async def _process_events(self, updated_after: datetime) -> datetime:
+    async def _process_events(
+        self,
+        tickets_repo: TicketsRepository,
+        events_repo: EventsRepository,
+        updated_after: datetime,
+    ) -> datetime:
         latest_seen = updated_after
-        async for event, ticket in self._iter_events(updated_after):
-            inserted = await self.repo.insert_event(event)
+        async for event, ticket in self._iter_events(tickets_repo, updated_after):
+            inserted = await events_repo.insert_event(event)
             if inserted:
                 self.logger.debug(
                     "event.created",
@@ -228,18 +259,25 @@ class Poller(Service):
             latest_seen = max(event.created_at, latest_seen)
         return latest_seen
 
-    async def _poll_once(self, cp_tickets: str, cp_events: str):
-        tickets_from, events_from = await self._bootstrap_if_needed(cp_tickets, cp_events)
+    async def _poll_once(
+        self,
+        tickets_repo: TicketsRepository,
+        events_repo: EventsRepository,
+        checkpoints_repo: CheckpointsRepository,
+        cp_tickets: str,
+        cp_events: str,
+    ) -> None:
+        tickets_from, events_from = await self._bootstrap_if_needed(checkpoints_repo, cp_tickets, cp_events)
         self.logger.debug(
             "poll.window",
             extra={"tickets_from": str(tickets_from), "events_from": str(events_from)},
         )
         # Tickets - создаем jobs для новых тикетов
         last_seen = await self._process_open_tickets(tickets_from)
-        await self.repo.set_checkpoint(cp_tickets, last_seen)
+        await checkpoints_repo.set_checkpoint(cp_tickets, last_seen)
         # Events - создаем jobs для новых событий
-        latest_seen = await self._process_events(events_from)
-        await self.repo.set_checkpoint(cp_events, latest_seen)
+        latest_seen = await self._process_events(tickets_repo, events_repo, events_from)
+        await checkpoints_repo.set_checkpoint(cp_events, latest_seen)
 
     async def run(self) -> None:
         self.job_queue = await create_job_queue(self._amqp_url, self.brand)
@@ -250,7 +288,7 @@ class Poller(Service):
 
     async def _acquire_lock(self) -> None:
         async with session_local() as session:
-            repo = Repository(session)
+            repo = LocksRepository(session)
             async with session.begin():
                 await repo.acquire_lock(
                     name=f"poller:{self.brand.value}",
@@ -261,7 +299,7 @@ class Poller(Service):
 
     async def _release_lock(self) -> None:
         async with session_local() as session:
-            repo = Repository(session)
+            repo = LocksRepository(session)
             async with session.begin():
                 await repo.release_lock(
                     name=f"poller:{self.brand.value}",
@@ -282,8 +320,6 @@ class Poller(Service):
             await self._release_lock()
         except Exception as exc:
             self.logger.debug("lock.release_failed", extra={"error": str(exc)})
-        finally:
-            self.repo = None
         await anyio.sleep(POLL_INTERVAL_SECONDS)
         try:
             log_ctx.reset(token)
@@ -305,9 +341,14 @@ class Poller(Service):
             session_local() as session,
             self.job_queue.context(),
         ):
-            self.repo = Repository(session)
+            tickets_repo = TicketsRepository(session)
+            events_repo = EventsRepository(session)
+            checkpoints_repo = CheckpointsRepository(session)
             async with session.begin():
                 await self._poll_once(
+                    tickets_repo,
+                    events_repo,
+                    checkpoints_repo,
                     f"tickets_cursor:{self.brand.value}",
                     f"events_cursor:{self.brand.value}",
                 )
