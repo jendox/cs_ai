@@ -1,8 +1,10 @@
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 from pydantic import ValidationError
 
+from src.db import session_local
+from src.db.repositories import TicketsRepository
 from src.jobs.models import JobType, TicketClosedMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -11,8 +13,8 @@ from src.logs.filters import log_ctx
 from src.services import Service
 
 
-@contextmanager
-def log_context(ticket_id: int, brand: Brand):
+@asynccontextmanager
+async def log_context(ticket_id: int, brand: Brand):
     token = log_ctx.set({
         "brand": brand.value,
         "job_type": JobType.TICKET_CLOSED.value,
@@ -50,7 +52,28 @@ class TicketClosedWorker(Service):
         )
 
     async def _handler(self, payload: dict) -> bool:
-        pass
+        message = self._parse_message(payload)
+        if not message:
+            return True
+
+        ticket_id = message.ticket_id
+        async with log_context(ticket_id=ticket_id, brand=self.brand):
+            async with session_local() as session:
+                repo = TicketsRepository(session)
+                async with session.begin():
+                    try:
+                        await repo.mark_unobserved(ticket_id)
+                        self.logger.info(
+                            "ticket.marked_unobserved",
+                            extra={"ticket_id": ticket_id},
+                        )
+                        return True
+                    except Exception as exc:
+                        self.logger.warning(
+                            "db.update_observing_failed",
+                            extra={"ticket_id": ticket_id, "error": str(exc)},
+                        )
+                        return False
 
     def _parse_message(self, payload: dict) -> TicketClosedMessage | None:
         try:

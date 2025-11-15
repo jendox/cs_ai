@@ -6,7 +6,7 @@ from src import config, services
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
-from src.workers import InitialReplyWorker
+from src.workers import InitialReplyWorker, TicketClosedWorker
 from src.zendesk.poller import Poller
 
 logger = logging.getLogger("cs")
@@ -27,7 +27,8 @@ async def app():
                 InitialReplyWorker(zendesk_client, amqp_url, brand),
                 # UserReplyWorker(zendesk_client, amqp_url, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
-                # TicketClosedWorker(zendesk_client, amqp_url, brand),
+                TicketClosedWorker(zendesk_client, amqp_url, brand),
+                # TelegramAdmin(settings.telegram, brand),
             ]
 
             async with anyio.create_task_group() as tg:

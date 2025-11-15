@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -168,3 +170,27 @@ class TicketsFilterRule(Base):
             f"<ServiceFilterRule id={self.id} kind={self.kind!r} value={self.value!r} "
             f"brand_id={self.brand_id} via_channel={self.via_channel!r} is_active={self.is_active}>"
         )
+
+
+# ========== TELEGRAM ==========
+
+class UserRole(Enum):
+    SUPERADMIN = "superadmin"
+    ADMIN = "admin"
+    USER = "user"
+    ANONYMOUS = "anonymous"
+
+
+user_role_enum = ENUM(UserRole, name="user_role_enum")
+
+
+class TelegramUser(Base):
+    __tablename__ = "telegram_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    username: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    role: Mapped[str] = mapped_column(user_role_enum, nullable=False, default=UserRole.USER)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -198,7 +198,7 @@ class Poller(Service):
         await self._upsert_ticket(ticket=update_ticket, observing=True)
 
     async def _create_status_job(self, event: Event, ticket: Ticket) -> None:
-        if ticket.status in {TicketStatus.CLOSED}:
+        if ticket.status in {TicketStatus.SOLVED, TicketStatus.CLOSED}:
             await self.job_queue.publish(
                 job_type=JobType.TICKET_CLOSED,
                 message=TicketClosedMessage(

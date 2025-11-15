@@ -2,14 +2,15 @@
 name = "cs"
 version = "0.1.0"
 description = "AI CS assitant"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "aio-pika>=9.5.7",
+    "aiogram>=3.22.0",
     "aiosqlite>=0.21.0",
     "alembic>=1.17.0",
     "editorconfig>=0.17.1",
     "httpx>=0.28.1",
-    "pydantic[email]>=2.12.2",
+    "pydantic[email]>=2.4.1,<2.12",
     "pydantic-settings>=2.11.0",
     "ruff>=0.14.0",
     "sqlalchemy[asyncio]>=2.0.44",

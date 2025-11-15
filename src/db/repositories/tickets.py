@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import case, literal, select
+from sqlalchemy import case, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,3 +88,19 @@ class TicketsRepository(BaseRepository):
     async def get_ticket_status(self, ticket_id: int) -> str:
         ticket = await self.get_ticket_by_id(ticket_id)
         return ticket.status
+
+    async def mark_unobserved(
+        self,
+        ticket_id: int,
+        last_seen_at: datetime | None = None,
+    ) -> None:
+        now = last_seen_at or datetime_utils.utcnow()
+        stmt = (
+            update(TicketEntity)
+            .where(TicketEntity.ticket_id == ticket_id)
+            .values(
+                observing=False,
+                last_seen_at=now,
+            )
+        )
+        await self._session.execute(stmt)

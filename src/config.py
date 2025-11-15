@@ -34,6 +34,7 @@ class AmazonSettings(BaseModel):
 class TelegramSettings(BaseModel):
     bot_token: SecretStr
     chat_id: int
+    username: str
     enabled: bool = True
     min_level: str = "CRITICAL"
 
