@@ -1,4 +1,5 @@
 import hashlib
+import json
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -30,11 +31,11 @@ system_prompt = """
     Respond ONLY with strict JSON:
     {
       "category": "customer_support" | "marketing_or_spam",
-      "reply": "..."
+      "body": "..."
     }
 
     Rules:
-    - If "category" is "marketing_or_spam", "reply" MUST be the exact text "SPAM_MESSAGE_DO_NOT_REPLY".
+    - If "category" is "marketing_or_spam", "body" MUST be the exact text "SPAM_MESSAGE_DO_NOT_REPLY".
     - Do not add any other fields.
     - Do not add explanations or comments.
 """
@@ -145,10 +146,8 @@ class InitialReplyWorker(Service):
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
                 return None
-            return AIReply(
-                category=AIReplyCategory.CUSTOMER_SUPPORT,
-                body=reply,
-            )
+            cleaned = reply.replace("```json", "").replace("```", "")
+            return AIReply(**json.loads(cleaned))
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return None

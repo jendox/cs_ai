@@ -3,8 +3,9 @@ import os
 import uuid
 from typing import Any
 
+from google.adk import Runner
 from google.adk.agents import Agent
-from google.adk.runners import InMemoryRunner
+from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 
 from src.ai.interfaces import LLMProvider
@@ -19,7 +20,7 @@ class GoogleProvider(LLMProvider):
         self._api_key = api_key
         self._model = model
         self._agent: Agent | None = None
-        self._runner = None
+        self._session_service = InMemorySessionService()
         self.logger = logging.getLogger("google_llm")
 
     def _initialize_agent(self, system_prompt: str):
@@ -45,20 +46,25 @@ class GoogleProvider(LLMProvider):
         last_message = messages[-1]["content"] if messages else ""
         new_message = Content(parts=[Part(text=last_message)])
 
-        runner = InMemoryRunner(agent=self._agent)
+        session = await self._session_service.create_session(
+            app_name="cs_app",
+            user_id=user_id,
+            session_id=session_id,
+        )
+        runner = Runner(
+            agent=self._agent,
+            app_name="cs_app",
+            session_service=self._session_service,
+        )
         full_response = ""
         try:
             async for event in runner.run_async(
                 user_id=user_id,
-                session_id=session_id,
+                session_id=session.id,
                 new_message=new_message,
             ):
-                if (
-                    hasattr(event, "message")
-                    and event.message
-                    and event.message.text
-                ):
-                    full_response += event.message.text
+                for part in event.content.parts:
+                    full_response += part.text
             return full_response
         except Exception as exc:
             print(f"ERROR: {str(exc)}")
