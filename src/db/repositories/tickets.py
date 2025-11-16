@@ -91,9 +91,11 @@ class TicketsRepository(BaseRepository):
         ticket = await self.get_ticket_by_id(ticket_id)
         return ticket.status
 
-    async def mark_unobserved(
+    async def set_observing(
         self,
         ticket_id: int,
+        *,
+        observing: bool,
         last_seen_at: datetime | None = None,
     ) -> None:
         now = last_seen_at or datetime_utils.utcnow()
@@ -101,23 +103,7 @@ class TicketsRepository(BaseRepository):
             update(TicketEntity)
             .where(TicketEntity.ticket_id == ticket_id)
             .values(
-                observing=False,
-                last_seen_at=now,
-            )
-        )
-        await self._session.execute(stmt)
-
-    async def mark_observed(
-        self,
-        ticket_id: int,
-        last_seen_at: datetime | None = None,
-    ) -> None:
-        now = last_seen_at or datetime_utils.utcnow()
-        stmt = (
-            update(TicketEntity)
-            .where(TicketEntity.ticket_id == ticket_id)
-            .values(
-                observing=True,
+                observing=observing,
                 last_seen_at=now,
             )
         )

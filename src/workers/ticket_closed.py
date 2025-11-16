@@ -62,7 +62,7 @@ class TicketClosedWorker(Service):
                 repo = TicketsRepository(session)
                 async with session.begin():
                     try:
-                        await repo.mark_unobserved(ticket_id)
+                        await repo.set_observing(ticket_id, observing=False)
                         self.logger.info(
                             "ticket.marked_unobserved",
                             extra={"ticket_id": ticket_id},

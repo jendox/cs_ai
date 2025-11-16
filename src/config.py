@@ -1,7 +1,8 @@
 from contextvars import ContextVar
-from typing import Self
+from enum import Enum
+from typing import Self, Literal
 
-from pydantic import BaseModel, EmailStr, SecretStr
+from pydantic import BaseModel, EmailStr, SecretStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 app_settings: ContextVar["AppSettings"] = ContextVar("app_settings")
@@ -54,12 +55,69 @@ class PostgresSettings(BaseModel):
         )
 
 
+# ========== LLM SETTINGS ==========
+
+class LLMProvider(str, Enum):
+    OPENAI = "openai"
+    GOOGLE = "google"
+    ANTHROPIC = "anthropic"
+
+
+class LLMProviderSettings(BaseModel):
+    api_key: SecretStr
+    base_url: str | None = None
+    models: list[str]
+    default_model: str
+
+
+class GoogleProviderSettings(LLMProviderSettings):
+    models: list[str] = Field(default=["gemini-1.5-flash"])
+    default_model: str = "gemini-1.5-flash"
+
+
+class OpenAIProviderSettings(LLMProviderSettings):
+    models: list[str] = Field(default=["gpt-4.1-mini"])
+    default_model: str = "gpt-4.1-mini"
+
+
+class AnthropicProviderSettings(LLMProviderSettings):
+    models: list[str] = Field(default=["anthropic:claude-3.5-sonnet"])
+    default_model: str = "anthropic:claude-3.5-sonnet"
+
+
+class LLMSettings(BaseModel):
+    google: GoogleProviderSettings | None = None
+    openai: OpenAIProviderSettings | None = None
+    anthropic: AnthropicProviderSettings | None = None
+
+    default_provider: Literal[
+        LLMProvider.OPENAI,
+        LLMProvider.GOOGLE,
+        LLMProvider.ANTHROPIC,
+    ] = LLMProvider.GOOGLE
+
+    @property
+    def default(self) -> LLMProviderSettings:
+        return self._get_provider(self.default_provider)
+
+    def _get_provider(self, provider: LLMProvider) -> LLMProviderSettings:
+        return {
+            LLMProvider.OPENAI: self.openai,
+            LLMProvider.GOOGLE: self.google,
+            LLMProvider.ANTHROPIC: self.anthropic,
+        }.get(provider)
+
+    def set_default_provider(self, provider: LLMProvider) -> None:
+        self.default_provider = provider
+
+
 class AppSettings(BaseSettings):
     zendesk: ZendeskSettings
     rabbitmq: RabbitMQSettings
     amazon: AmazonSettings
     telegram: TelegramSettings
     postgres: PostgresSettings
+    llm: LLMSettings
 
     model_config = SettingsConfigDict(
         env_file=".env",

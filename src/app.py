@@ -18,6 +18,7 @@ async def app():
     logger.info("app.up", extra={"brand": brand.value})
     try:
         settings = config.app_settings.get()
+        print(settings)
         amqp_url = settings.rabbitmq.amqp_url
         async with (
             Database.lifespan(url=settings.postgres.url),
@@ -29,7 +30,7 @@ async def app():
                 # UserReplyWorker(zendesk_client, amqp_url, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                 TicketClosedWorker(zendesk_client, amqp_url, brand),
-                TelegramAdmin(settings.telegram, brand),
+                # TelegramAdmin(settings.telegram, brand),
             ]
 
             async with anyio.create_task_group() as tg:

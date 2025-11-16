@@ -1,6 +1,3 @@
-import uuid
-from contextlib import asynccontextmanager
-
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -10,26 +7,9 @@ from src.db import session_local
 from src.db.models import UserRole
 from src.db.repositories.telegram import TelegramUsersRepository, UserNotFound
 from src.libs.zendesk_client.models import Brand
-from src.logs.filters import log_ctx
 from src.services import Service
 from src.telegram.handlers import routers
 from src.telegram.middlewares import AuthenticationMiddleware
-
-
-@asynccontextmanager
-async def log_context(user_id: int, brand: Brand):
-    token = log_ctx.set({
-        "brand": brand.value,
-        "user_id": user_id,
-        "iteration_id": uuid.uuid4().hex[:8],
-    })
-    try:
-        yield
-    finally:
-        try:
-            log_ctx.reset(token)
-        except Exception:
-            pass
 
 
 class TelegramAdmin(Service):
