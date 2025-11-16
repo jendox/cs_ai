@@ -21,7 +21,7 @@ async def cmd_ticket_observe(message: Message, ticket_id: int, repo: TicketsRepo
     async with log_context(telegram_id=message.from_user.id):
         await repo.set_observing(ticket_id, observing=True)
         await message.answer(
-            f"Для тикета <code>{ticket_id}</code> установлено <b>observing=True</b>."
+            f"Для тикета <code>{ticket_id}</code> установлено <b>observing=True</b>.",
         )
         logger.info("ticket.observe", extra={"ticket_id": ticket_id})
 
@@ -32,6 +32,6 @@ async def cmd_ticket_not_observe(message: Message, ticket_id: int, repo: Tickets
     async with log_context(telegram_id=message.from_user.id):
         await repo.set_observing(ticket_id, observing=False)
         await message.answer(
-            f"Для тикета <code>{ticket_id}</code> установлено <b>observing=False</b>."
+            f"Для тикета <code>{ticket_id}</code> установлено <b>observing=False</b>.",
         )
         logger.info("ticket.not_observe", extra={"ticket_id": ticket_id})

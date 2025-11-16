@@ -17,7 +17,7 @@ router = Router(name=__name__)
 
 @router.message(Command("add_user"), TicketId(), RoleRequired(UserRole.ADMIN))
 @with_repository(TelegramUsersRepository)
-async def cmd_ticket_observe(
+async def cmd_add_user(
     message: Message,
     telegram_id: int,
     username: str,
@@ -31,7 +31,7 @@ async def cmd_ticket_observe(
                 f"Добавлен новый пользователь:\n\n"
                 f"<b>username</b>: {username}\n"
                 f"<b>telegram_id</b>: {telegram_id}\n"
-                f"<b>user_role</b>: {UserRole.USER.name.lower()}"
+                f"<b>user_role</b>: {UserRole.USER.name.lower()}",
             )
             logger.info("add_user.success", extra=extra)
         except Exception as exc:
@@ -40,7 +40,7 @@ async def cmd_ticket_observe(
 
 @router.message(Command("add_admin"), TicketId(), RoleRequired(UserRole.SUPERADMIN))
 @with_repository(TelegramUsersRepository)
-async def cmd_ticket_observe(
+async def cmd_add_admin(
     message: Message,
     telegram_id: int,
     username: str,
@@ -54,7 +54,7 @@ async def cmd_ticket_observe(
                 f"Добавлен новый администратор:\n\n"
                 f"<b>username</b>: {username}\n"
                 f"<b>telegram_id</b>: {telegram_id}\n"
-                f"<b>user_role</b>: {UserRole.ADMIN.name.lower()}"
+                f"<b>user_role</b>: {UserRole.ADMIN.name.lower()}",
             )
             logger.info("add_admin.success", extra=extra)
         except Exception as exc:

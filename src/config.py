@@ -1,8 +1,8 @@
 from contextvars import ContextVar
 from enum import Enum
-from typing import Self, Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, EmailStr, SecretStr, Field
+from pydantic import BaseModel, EmailStr, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 app_settings: ContextVar["AppSettings"] = ContextVar("app_settings")

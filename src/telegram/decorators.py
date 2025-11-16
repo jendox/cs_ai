@@ -1,11 +1,11 @@
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Type, Any
+from typing import Any
 
 from src.db import session_local
 
 
-def with_repository(repository_cls: Type | None = None):
+def with_repository(repository_cls: type | None = None):
     def decorator(func: Callable[..., Awaitable[Any]]):
         @wraps(func)
         async def wrapper(event, **data):
