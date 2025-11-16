@@ -1,9 +1,12 @@
-from typing import Protocol
+from typing import Protocol, Any
 
 
-class LLMClient(Protocol):
-    async def chat(self):
-        ...
-
-    async def chat_json(self):
-        ...
+class LLMProvider(Protocol):
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        user_id: str,
+        system_prompt: str,
+        session_id: str | None = None,
+        tools: list | None = None,
+    ): ...

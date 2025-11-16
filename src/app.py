@@ -3,6 +3,7 @@ import logging.config
 import anyio
 
 from src import config, services
+from src.ai.google import GoogleProvider
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
@@ -18,15 +19,18 @@ async def app():
     logger.info("app.up", extra={"brand": brand.value})
     try:
         settings = config.app_settings.get()
-        print(settings)
         amqp_url = settings.rabbitmq.amqp_url
         async with (
             Database.lifespan(url=settings.postgres.url),
             create_zendesk_client(settings.zendesk) as zendesk_client,
         ):
+            llm_client = GoogleProvider(
+                settings.llm.default.api_key.get_secret_value(),
+                settings.llm.default.default_model,
+            )
             tasks = [
                 Poller(zendesk_client, amqp_url, brand),
-                InitialReplyWorker(zendesk_client, amqp_url, brand),
+                InitialReplyWorker(zendesk_client, amqp_url, llm_client, brand),
                 # UserReplyWorker(zendesk_client, amqp_url, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                 TicketClosedWorker(zendesk_client, amqp_url, brand),

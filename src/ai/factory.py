@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from src.ai.interfaces import LLMClient
+from src.ai.interfaces import LLMProvider
 
 
 # @lru_cache(maxsize=None)

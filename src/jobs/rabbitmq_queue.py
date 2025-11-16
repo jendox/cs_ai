@@ -215,17 +215,19 @@ class RabbitJobQueue:
 
         # Retry queues
         for i, delay in enumerate(RETRY_DELAYS, start=1):
-            next_key = (
-                f"{job_type.value}.{brand.value}"
-                if i == len(RETRY_DELAYS)
-                else f"{job_type.value}.{brand.value}.retry.{i + 1}"
-            )
+            if i == len(RETRY_DELAYS):
+                # Используем ТОТ ЖЕ ключ, что и основная очередь
+                next_key = f"{job_type.value}.{brand.value}"
+                dead_letter_exchange = EXCHANGE  # Отправляем напрямую в основной exchange
+            else:
+                next_key = f"{job_type.value}.{brand.value}.retry.{i + 1}"
+                dead_letter_exchange = DLX
             queue = await channel.declare_queue(
                 name=f"jobs.{job_type.value}.{brand.value}.retry.{i}",
                 durable=True,
                 arguments={
                     "x-message-ttl": delay * 1000,
-                    "x-dead-letter-exchange": EXCHANGE,
+                    "x-dead-letter-exchange": dead_letter_exchange,
                     "x-dead-letter-routing-key": next_key,
                 },
             )

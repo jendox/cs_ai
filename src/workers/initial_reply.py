@@ -7,6 +7,7 @@ from enum import Enum
 import httpx
 from pydantic import ValidationError
 
+from src.ai.interfaces import LLMProvider
 from src.db import session_local
 from src.db.repositories import OurPostsRepository, TicketsRepository
 from src.jobs.models import InitialReplyMessage, JobType
@@ -72,11 +73,13 @@ class InitialReplyWorker(Service):
         self,
         zendesk_client: ZendeskClient,
         amqp_url: str,
+        llm: LLMProvider,
         brand: Brand,
     ) -> None:
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
+        self._llm = llm
 
     async def run(self) -> None:
         job_queue = await create_job_queue(self._amqp_url, self.brand)
@@ -106,7 +109,7 @@ class InitialReplyWorker(Service):
                         self.logger.info("tickets.filtered_as_service", extra={"ticket_id": ticket.id})
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Генерация первичного ответа
-                    reply = self._build_ai_reply(ticket)
+                    reply = await self._build_ai_reply(ticket)
                     if not reply:
                         return False
                     if reply.category == AIReplyCategory.MARKETING_OR_SPAM:
@@ -135,13 +138,17 @@ class InitialReplyWorker(Service):
             self.logger.warning("ticket.update_observing_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return False
 
-    def _build_ai_reply(self, ticket: Ticket) -> AIReply | None:
+    async def _build_ai_reply(self, ticket: Ticket) -> AIReply | None:
         try:
-            reply = _generate_ai_initial_reply(ticket)
+            content = f"#{ticket.id}\n{ticket.subject}\n\n{ticket.description}"
+            reply = await self._llm.chat([{"content": content}], "initial_reply", system_prompt)
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
                 return None
-            return reply
+            return AIReply(
+                category=AIReplyCategory.CUSTOMER_SUPPORT,
+                body=reply,
+            )
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return None
@@ -176,31 +183,30 @@ class InitialReplyWorker(Service):
             self.logger.error("post_failed", extra={"ticket_id": ticket_id, "error": str(exc)})
             return False
 
-
 # ----------------------------- Генерация ответа (заглушка AI) -----------------------------
-def _generate_ai_initial_reply(ticket: Ticket) -> AIReply:
-    """
-    Здесь должна быть интеграция с AI/LLM.
-    Пока — понятная, безопасная заглушка.
-    """
-    name = "there"
-    subject = (ticket.subject or ticket.raw_subject or "").strip()
-    description = (ticket.description or "").strip()
-
-    lines = [f"Hi {name}, thanks for reaching out!"]
-    if subject:
-        lines.append(subject)
-    if description:
-        lines.append("")
-        lines.append(description)
-
-    lines.append("")
-    lines.append("Here’s what we can do next: ")
-    lines.append("• I’ll look into this and get back with details.")
-    lines.append("")
-    lines.append("— Support")
-
-    return AIReply(
-        category=AIReplyCategory.CUSTOMER_SUPPORT,
-        body="\n".join(lines).strip(),
-    )
+# def _generate_ai_initial_reply(ticket: Ticket) -> AIReply:
+#     """
+#     Здесь должна быть интеграция с AI/LLM.
+#     Пока — понятная, безопасная заглушка.
+#     """
+#     name = "there"
+#     subject = (ticket.subject or ticket.raw_subject or "").strip()
+#     description = (ticket.description or "").strip()
+#
+#     lines = [f"Hi {name}, thanks for reaching out!"]
+#     if subject:
+#         lines.append(subject)
+#     if description:
+#         lines.append("")
+#         lines.append(description)
+#
+#     lines.append("")
+#     lines.append("Here’s what we can do next: ")
+#     lines.append("• I’ll look into this and get back with details.")
+#     lines.append("")
+#     lines.append("— Support")
+#
+#     return AIReply(
+#         category=AIReplyCategory.CUSTOMER_SUPPORT,
+#         body="\n".join(lines).strip(),
+#     )

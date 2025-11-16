@@ -71,8 +71,8 @@ class LLMProviderSettings(BaseModel):
 
 
 class GoogleProviderSettings(LLMProviderSettings):
-    models: list[str] = Field(default=["gemini-1.5-flash"])
-    default_model: str = "gemini-1.5-flash"
+    models: list[str] = Field(default=["gemini-2.5-flash-lite"])
+    default_model: str = "gemini-2.5-flash-lite"
 
 
 class OpenAIProviderSettings(LLMProviderSettings):
