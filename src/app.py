@@ -3,7 +3,9 @@ import logging.config
 import anyio
 
 from src import config, services
-from src.ai.google import GoogleProvider
+from src.ai.config import LLMRuntimeSettingsStorage
+from src.ai.config.prompt import LLMPromptStorage
+from src.ai.llm_clients.pool import LLMClientPool
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
@@ -23,13 +25,14 @@ async def app():
             Database.lifespan(url=settings.postgres.url),
             create_zendesk_client(settings.zendesk) as zendesk_client,
         ):
-            llm_client = GoogleProvider(
-                settings.llm.default.api_key.get_secret_value(),
-                settings.llm.default.default_model,
-            )
+            llm_client_pool = LLMClientPool(settings.llm)
+            runtime_storage = LLMRuntimeSettingsStorage()
+            prompt_storage = LLMPromptStorage()
             tasks = [
                 Poller(zendesk_client, amqp_url, brand),
-                InitialReplyWorker(zendesk_client, amqp_url, llm_client, brand),
+                InitialReplyWorker(
+                    zendesk_client, amqp_url, llm_client_pool, runtime_storage, prompt_storage, brand,
+                ),
                 # UserReplyWorker(zendesk_client, amqp_url, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                 TicketClosedWorker(zendesk_client, amqp_url, brand),

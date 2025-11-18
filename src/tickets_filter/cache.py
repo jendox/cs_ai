@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.repositories import CheckpointsRepository, TicketsFilterRuleRepository
 from src.libs.zendesk_client.models import Brand
 from src.tickets_filter.config import FilterConfig
+from src.tickets_filter.dto import TicketsFilterRuleDTO
 from src.tickets_filter.filter import TicketsFilter
 
 __all__ = (
@@ -45,7 +46,7 @@ class TicketsFilterCache:
             return cached.filter_
 
         rules = await rules_repo.list_rules(is_active=True)
-        config = FilterConfig.from_rules(rules)
+        config = FilterConfig.from_rules([TicketsFilterRuleDTO.from_entity(rule) for rule in rules])
         filter_ = TicketsFilter(config)
 
         self._by_brand[brand.value] = _CacheEntry(

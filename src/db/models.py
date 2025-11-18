@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
@@ -167,12 +167,48 @@ class TicketsFilterRule(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<ServiceFilterRule id={self.id} kind={self.kind!r} value={self.value!r} "
+            f"<TicketFilterRule id={self.id} kind={self.kind!r} value={self.value!r} "
             f"brand_id={self.brand_id} via_channel={self.via_channel!r} is_active={self.is_active}>"
         )
 
 
+# ========== LLM ==========
+
+class LLMRuntimeSettingsKey(str, Enum):
+    CLASSIFICATION = "classification"
+    RESPONSE = "response"
+
+
+llm_settings_key_enum = ENUM(LLMRuntimeSettingsKey, name="llm_settings_key_enum")
+
+
+class LLMRuntimeSettings(Base):
+    __tablename__ = "llm_runtime_settings"
+
+    key: Mapped[LLMRuntimeSettingsKey] = mapped_column(llm_settings_key_enum, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class LLMPromptKey(str, Enum):
+    INITIAL_REPLY = "initial_reply"
+    CLASSIFICATION = "classification"
+
+
+llm_prompt_key_enum = ENUM(LLMPromptKey, name="llm_prompt_key_enum")
+
+
+class LLMPrompt(Base):
+    key: Mapped[LLMPromptKey] = mapped_column(llm_prompt_key_enum, primary_key=True)
+    brand_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=True)
+
+
 # ========== TELEGRAM ==========
+
 
 class UserRole(str, Enum):
     SUPERADMIN = "superadmin"
@@ -197,9 +233,9 @@ class TelegramUser(Base):
     __tablename__ = "telegram_users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     username: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    role: Mapped[str] = mapped_column(user_role_enum, nullable=False, default=UserRole.USER)
+    role: Mapped[UserRole] = mapped_column(user_role_enum, nullable=False, default=UserRole.USER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

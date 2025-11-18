@@ -18,7 +18,6 @@ Public API:
 - ServiceDecision    — final classification for a ticket.
 - TicketsFilter      — main classifier.
 """
-
 import logging
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -60,9 +59,10 @@ class ServiceDecision:
     Final classification result for a ticket.
 
     Attributes:
-        is_service: True — сервисный тикет (skip), False — пользовательский (send).
-        rule:       Имя правила, принявшего решение, или None, если ни одно правило не сработало.
-        detail:     Дополнительная деталь (pattern/tag/domain), если доступна.
+        is_service:  True = service ticket (AI reply skipped),
+                     False = user ticket (AI reply allowed).
+        rule:        Name of the rule that produced the final outcome, if any.
+        detail:      Optional diagnostic detail (pattern/tag/domain/etc.).
     """
 
     is_service: bool
@@ -85,7 +85,10 @@ class TicketsFilter:
         is_service = filter_.is_service_ticket(ticket)
     """
 
-    def __init__(self, config: FilterConfig) -> None:
+    def __init__(
+        self,
+        config: FilterConfig,
+    ) -> None:
         self.config = config
         self.logger = logging.getLogger("tickets_filter")
 
@@ -237,7 +240,7 @@ class TicketsFilter:
 
         return RuleResult(RuleOutcome.ABSTAIN)
 
-    def classify_ticket(self, ticket: Ticket) -> ServiceDecision:
+    async def classify_ticket(self, ticket: Ticket) -> ServiceDecision:
         """
         Run the full rule pipeline and return a detailed classification result.
 
@@ -280,7 +283,7 @@ class TicketsFilter:
         )
         return ServiceDecision(is_service=False, rule=None)
 
-    def is_service_ticket(self, ticket: Ticket) -> bool:
+    async def is_service_ticket(self, ticket: Ticket) -> bool:
         """
         Convenience shortcut returning only the boolean classification.
 
@@ -289,5 +292,5 @@ class TicketsFilter:
             False — user ticket (AI reply allowed).
         """
 
-        decision = self.classify_ticket(ticket)
+        decision = await self.classify_ticket(ticket)
         return decision.is_service

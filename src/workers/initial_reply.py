@@ -1,14 +1,16 @@
 import hashlib
-import json
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from enum import Enum
 
 import httpx
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.interfaces import LLMProvider
+from src.ai.config import LLMRuntimeSettingsStorage
+from src.ai.config.prompt import LLMPromptStorage
+from src.ai.llm_clients import LLMClientPool
+from src.ai.reply_generator import LLMReplyGenerator
+from src.ai.ticket_classifier import LLMTicketClassifier
 from src.db import session_local
 from src.db.repositories import OurPostsRepository, TicketsRepository
 from src.jobs.models import InitialReplyMessage, JobType
@@ -18,38 +20,6 @@ from src.libs.zendesk_client.models import Brand, Ticket
 from src.logs.filters import log_ctx
 from src.services import Service
 from src.tickets_filter.cache import tickets_filter_cache
-
-system_prompt = """
-    You are an assistant for an ecommerce customer support inbox.
-    Sometimes incoming messages are marketing, advertising, or agency outreach (spam)
-    and the company does NOT want to reply to those.
-
-    Your task:
-    1. Decide whether the message is from a real customer/potential customer or from a marketing/agency/spam sender.
-    2. If it is customer support, generate a helpful reply.
-    3. If it is marketing/agency/spam, do NOT generate a normal reply. Instead, classify it as spam.
-    Respond ONLY with strict JSON:
-    {
-      "category": "customer_support" | "marketing_or_spam",
-      "body": "..."
-    }
-
-    Rules:
-    - If "category" is "marketing_or_spam", "body" MUST be the exact text "SPAM_MESSAGE_DO_NOT_REPLY".
-    - Do not add any other fields.
-    - Do not add explanations or comments.
-"""
-
-
-class AIReplyCategory(str, Enum):
-    CUSTOMER_SUPPORT = "customer_support"
-    MARKETING_OR_SPAM = "marketing_or_spam"
-
-
-@dataclass
-class AIReply:
-    category: AIReplyCategory
-    body: str = "SPAM_MESSAGE_DO_NOT_REPLY"
 
 
 @asynccontextmanager
@@ -74,13 +44,17 @@ class InitialReplyWorker(Service):
         self,
         zendesk_client: ZendeskClient,
         amqp_url: str,
-        llm: LLMProvider,
+        llm_client_pool: LLMClientPool,
+        settings_storage: LLMRuntimeSettingsStorage,
+        prompt_storage: LLMPromptStorage,
         brand: Brand,
     ) -> None:
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
+        self._llm_client_pool = llm_client_pool
+        self._ticket_classifier = LLMTicketClassifier(llm_client_pool, settings_storage)
+        self._reply_generator = LLMReplyGenerator(llm_client_pool, prompt_storage)
         self._amqp_url = amqp_url
-        self._llm = llm
 
     async def run(self) -> None:
         job_queue = await create_job_queue(self._amqp_url, self.brand)
@@ -104,24 +78,20 @@ class InitialReplyWorker(Service):
                 our_posts_repo = OurPostsRepository(session)
 
                 async with session.begin():
-                    tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
-                    # Служебные тикеты — выключить наблюдение и завершить
-                    if tickets_filter.is_service_ticket(ticket):
-                        self.logger.info("tickets.filtered_as_service", extra={"ticket_id": ticket.id})
+                    # Filter ticket
+                    session_id = uuid.uuid4().hex
+                    if self._filter_as_service(session, ticket, session_id):
                         return await self._mark_unobserved(tickets_repo, ticket)
-                    # Генерация первичного ответа
-                    reply = await self._build_ai_reply(ticket)
+                    # Initial reply generation
+                    reply = await self._build_ai_reply(ticket, session_id)
                     if not reply:
                         return False
-                    if reply.category == AIReplyCategory.MARKETING_OR_SPAM:
-                        self.logger.info("tickets.marked_as_spam_by_llm", extra={"ticket_id": ticket.id})
-                        return await self._mark_unobserved(tickets_repo, ticket)
                     # Отправка ответа в Zendesk + идемпотентность в БД
                     channel = "private" if self._zendesk_client.review_mode else "public"
-                    saved = await self._save_reply(our_posts_repo, reply.body, ticket.id, channel)
+                    saved = await self._save_reply(our_posts_repo, reply, ticket.id, channel)
                 if not saved:
                     return True
-                return await self._post_comment(ticket.id, reply.body)
+                return await self._post_comment(ticket.id, reply)
 
     def _parse_message(self, payload: dict) -> InitialReplyMessage | None:
         try:
@@ -129,6 +99,34 @@ class InitialReplyWorker(Service):
         except ValidationError as error:
             self.logger.error("payload.validation.error", extra={"error": str(error)})
             return None
+
+    async def _filter_as_service(
+        self,
+        session: AsyncSession,
+        ticket: Ticket,
+        session_id: str,
+    ) -> bool:
+        tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
+        extra = {"session_id": session_id}
+        if tickets_filter.is_service_ticket(ticket):
+            self.logger.info(
+                "tickets.filtered_as_service",
+                extra={**extra, "decision": "tickets_filter"},
+            )
+            return True
+        # Фильтрация AI
+        decision = await self._ticket_classifier.decide(ticket, session_id)
+        if decision.is_service:
+            self.logger.info(
+                "tickets.filtered_as_service",
+                extra={**extra, "decision": "llm_tickets_classifier"},
+            )
+            return True
+        self.logger.info(
+            "tickets.filtered_as_customer",
+            extra=extra,
+        )
+        return False
 
     async def _mark_unobserved(self, tickets_repo: TicketsRepository, ticket: Ticket) -> bool:
         try:
@@ -139,15 +137,20 @@ class InitialReplyWorker(Service):
             self.logger.warning("ticket.update_observing_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return False
 
-    async def _build_ai_reply(self, ticket: Ticket) -> AIReply | None:
+    async def _build_ai_reply(self, ticket: Ticket, session_id: str) -> str:
         try:
+            client = self._llm_client_pool.get_client(None)
             content = f"#{ticket.id}\n{ticket.subject}\n\n{ticket.description}"
-            reply = await self._llm.chat([{"content": content}], "initial_reply", system_prompt)
+            reply = await client.chat(
+                messages=[{"content": content}],
+                settings=None,
+                session_id=session_id,
+                system_prompt=None,
+            )
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
                 return None
-            cleaned = reply.replace("```json", "").replace("```", "")
-            return AIReply(**json.loads(cleaned))
+            return None
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return None

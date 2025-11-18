@@ -15,5 +15,5 @@ dependencies = [
     "ruff>=0.14.0",
     "sqlalchemy[asyncio]>=2.0.44",
     "asyncpg>=0.30.0",
-    "google-adk>=1.18.0",
+    "google-genai>=1.50.1",
 ]

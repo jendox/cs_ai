@@ -1,8 +1,8 @@
 from contextvars import ContextVar
 from enum import Enum
-from typing import Literal, Self
+from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, SecretStr
+from pydantic import BaseModel, EmailStr, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 app_settings: ContextVar["AppSettings"] = ContextVar("app_settings")
@@ -66,23 +66,19 @@ class LLMProvider(str, Enum):
 class LLMProviderSettings(BaseModel):
     api_key: SecretStr
     base_url: str | None = None
-    models: list[str]
-    default_model: str
+    model: str
 
 
 class GoogleProviderSettings(LLMProviderSettings):
-    models: list[str] = Field(default=["gemini-2.5-flash-lite"])
-    default_model: str = "gemini-2.5-flash-lite"
+    model: str = "gemini-2.5-flash-lite"
 
 
 class OpenAIProviderSettings(LLMProviderSettings):
-    models: list[str] = Field(default=["gpt-4.1-mini"])
-    default_model: str = "gpt-4.1-mini"
+    model: str = "gpt-4.1-mini"
 
 
 class AnthropicProviderSettings(LLMProviderSettings):
-    models: list[str] = Field(default=["anthropic:claude-3.5-sonnet"])
-    default_model: str = "anthropic:claude-3.5-sonnet"
+    model: str = "anthropic:claude-3.5-sonnet"
 
 
 class LLMSettings(BaseModel):
@@ -90,22 +86,22 @@ class LLMSettings(BaseModel):
     openai: OpenAIProviderSettings | None = None
     anthropic: AnthropicProviderSettings | None = None
 
-    default_provider: Literal[
-        LLMProvider.OPENAI,
-        LLMProvider.GOOGLE,
-        LLMProvider.ANTHROPIC,
-    ] = LLMProvider.GOOGLE
+    default_provider: LLMProvider = LLMProvider.GOOGLE
 
-    @property
-    def default(self) -> LLMProviderSettings:
-        return self._get_provider(self.default_provider)
-
-    def _get_provider(self, provider: LLMProvider) -> LLMProviderSettings:
-        return {
+    def get_provider_settings(
+        self,
+        provider: LLMProvider | None,
+    ) -> LLMProviderSettings:
+        provider = provider or self.default_provider
+        mapping: dict[LLMProvider, LLMProviderSettings | None] = {
             LLMProvider.OPENAI: self.openai,
             LLMProvider.GOOGLE: self.google,
             LLMProvider.ANTHROPIC: self.anthropic,
-        }.get(provider)
+        }
+        settings = mapping.get(provider)
+        if settings is None:
+            raise ValueError(f"Provider {provider} is not configured in LLMSettings")
+        return settings
 
     def set_default_provider(self, provider: LLMProvider) -> None:
         self.default_provider = provider
