@@ -199,6 +199,8 @@ llm_prompt_key_enum = ENUM(LLMPromptKey, name="llm_prompt_key_enum")
 
 
 class LLMPrompt(Base):
+    __tablename__ = "llm_prompts"
+
     key: Mapped[LLMPromptKey] = mapped_column(llm_prompt_key_enum, primary_key=True)
     brand_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
