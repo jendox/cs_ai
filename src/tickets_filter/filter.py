@@ -240,7 +240,7 @@ class TicketsFilter:
 
         return RuleResult(RuleOutcome.ABSTAIN)
 
-    async def classify_ticket(self, ticket: Ticket) -> ServiceDecision:
+    def classify_ticket(self, ticket: Ticket) -> ServiceDecision:
         """
         Run the full rule pipeline and return a detailed classification result.
 
@@ -283,7 +283,7 @@ class TicketsFilter:
         )
         return ServiceDecision(is_service=False, rule=None)
 
-    async def is_service_ticket(self, ticket: Ticket) -> bool:
+    def is_service_ticket(self, ticket: Ticket) -> bool:
         """
         Convenience shortcut returning only the boolean classification.
 
@@ -292,5 +292,5 @@ class TicketsFilter:
             False — user ticket (AI reply allowed).
         """
 
-        decision = await self.classify_ticket(ticket)
+        decision = self.classify_ticket(ticket)
         return decision.is_service

@@ -80,7 +80,7 @@ class InitialReplyWorker(Service):
                 async with session.begin():
                     # Filter ticket
                     session_id = uuid.uuid4().hex
-                    if self._filter_as_service(session, ticket, session_id):
+                    if await self._filter_as_service(session, ticket, session_id):
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Initial reply generation
                     reply = await self._build_ai_reply(ticket, session_id)
