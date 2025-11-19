@@ -31,15 +31,17 @@ class GoogleLLMClient(LLMClientInterface):
         contents: list[types.Content] = []
         system_instruction = system_prompt or ""
         for message in messages:
-            role = message.get("role", "")
             text = message.get("content", "").strip()
-
             if not text:
                 continue
 
+            role = message.get("role", "user")
+            if role not in {"user", "assistant"}:
+                role = "user"
+
             contents.append(
                 types.Content(
-                    role=role if role in {"assistant", "model"} else "user",
+                    role=role,
                     parts=[types.Part(text=text)],
                 ),
             )

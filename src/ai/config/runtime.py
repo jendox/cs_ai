@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -35,25 +37,40 @@ class RuntimeClassificationSettings(BaseLLMRuntimeSettings):
 
 
 class LLMRuntimeSettingsStorage:
+    def __init__(self):
+        self.logger = logging.getLogger("runtime_settings_storage")
+
     async def get_classification(self) -> RuntimeClassificationSettings:
         try:
             settings = await self._get(LLMRuntimeSettingsKey.CLASSIFICATION)
             return RuntimeClassificationSettings.model_validate(settings)
         except LLMSettingsNotExists:
-            return RuntimeClassificationSettings()
+            settings = RuntimeClassificationSettings()
+            await self.set_classification(settings)
+        return settings
 
     async def get_response(self) -> RuntimeResponseSettings:
         try:
             settings = await self._get(LLMRuntimeSettingsKey.RESPONSE)
             return RuntimeResponseSettings.model_validate(settings)
         except LLMSettingsNotExists:
-            return RuntimeResponseSettings()
+            settings = RuntimeResponseSettings()
+            await self.set_response(settings, "set_default")
+        return settings
 
-    async def set_classification(self, settings: RuntimeClassificationSettings) -> None:
-        await self._set(LLMRuntimeSettingsKey.CLASSIFICATION, settings.model_dump())
+    async def set_classification(
+        self,
+        settings: RuntimeClassificationSettings,
+        user_id: str | int | None = None,
+    ) -> None:
+        await self._set(LLMRuntimeSettingsKey.CLASSIFICATION, settings.model_dump(), user_id)
 
-    async def set_response(self, settings: RuntimeResponseSettings) -> None:
-        await self._set(LLMRuntimeSettingsKey.RESPONSE, settings.model_dump())
+    async def set_response(
+        self,
+        settings: RuntimeResponseSettings,
+        user_id: str | int | None = None,
+    ) -> None:
+        await self._set(LLMRuntimeSettingsKey.RESPONSE, settings.model_dump(), user_id)
 
     @staticmethod
     async def _get(key: LLMRuntimeSettingsKey) -> dict[str, Any]:
@@ -62,9 +79,21 @@ class LLMRuntimeSettingsStorage:
             entity = await repo.get(key)
             return entity.value
 
-    @staticmethod
-    async def _set(key: LLMRuntimeSettingsKey, value: dict[str, Any]) -> None:
+    async def _set(
+        self,
+        key: LLMRuntimeSettingsKey,
+        value: dict[str, Any],
+        user_id: str | int | None = None,
+    ) -> None:
         async with session_local() as session:
             async with session.begin():
                 repo = LLMSettingsRepository(session)
                 await repo.set(key, value)
+                self.logger.info(
+                    "set",
+                    extra={
+                        "key": key.value,
+                        "value": json.dumps(value),
+                        "user_id": user_id,
+                    },
+                )

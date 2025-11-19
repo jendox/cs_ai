@@ -99,6 +99,7 @@ class OurPost(Base):
         nullable=False,
     )
     body_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
     channel: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 

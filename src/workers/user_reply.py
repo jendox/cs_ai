@@ -83,7 +83,7 @@ class UserReplyWorker(Service):
     ) -> bool:
         body_hash = hashlib.md5(body.encode()).hexdigest()
         recorded = await our_post_repo.record_our_post(
-            ticket_id=ticket_id, body_hash=body_hash, channel=channel,
+            ticket_id=ticket_id, body_hash=body_hash, body=body, channel=channel,
         )
         if not recorded:
             # такой ответ уже фиксировали — не дублируем

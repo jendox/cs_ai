@@ -7,10 +7,11 @@ from textwrap import dedent
 from pydantic import BaseModel, Field
 
 from src.ai.config import LLMRuntimeSettingsStorage, RuntimeClassificationSettings
+from src.ai.config.prompt import LLMPromptStorage
 from src.ai.llm_clients.interfaces import LLMClientInterface
 from src.ai.llm_clients.pool import LLMClientPool
 from src.ai.utils import extract_json_block
-from src.libs.zendesk_client.models import Ticket
+from src.libs.zendesk_client.models import Brand, Ticket
 
 
 class MessageCategory(str, Enum):
@@ -38,68 +39,56 @@ class LLMTicketDecision:
     confidence: float
 
 
-def _build_classification_prompt() -> str:
-    """
-    System prompt for classifying tickets as customer_support vs marketing_or_spam.
-    """
-    return dedent(f"""
-        You are an AI classifier for an ecommerce customer support inbox.
-        DO NOT generate replies to the user. Your job is ONLY classification.
-
-        Your task:
-        1. Determine whether the incoming message was written by:
-           - a real customer or potential customer, OR
-           - a marketing/agency/sales/spam sender.
-        2. Output a strict JSON object ONLY.
-
-        Classification rules:
-        - "{MessageCategory.CUSTOMER_SUPPORT.value}": questions, complaints, order issues, product questions,
-          returns, refunds, delivery problems, missing items, product feedback, pre-purchase questions.
-        - "{MessageCategory.MARKETING_OR_SPAM.value}": outreach messages, agencies, advertising offers, SEO,
-          backlinks, brand deals, collaboration proposals, bulk manufacturing, wholesale offers,
-          lead generation, guest posts, crypto, financing, B2B sales outreach, supplier offers.
-
-        Useful indicators of marketing/spam (not required but helpful):
-        - Personal email domains used for outreach (gmail/outlook/yahoo etc.)
-        - Corporate outreach keywords: "collaboration", "agency", "SEO", "backlinks", "sponsorship", "private label",
-          "wholesale", "bulk", "manufacturing", "guest post", "traffic", "marketing", "advertising", "proposal"
-        - Messages that do NOT reference an actual order, product issue, delivery, or customer problem.
-
-        Output rules:
-        - You MUST respond with VALID JSON ONLY.
-        - No explanation or text outside JSON.
-        - JSON schema:
-
-        {{
-            "category": {MessageCategory.for_prompt()},
-            "confidence": float
-        }}
-
-        Where:
-        - confidence (number between 0.0 and 1.0) indicates how sure you are in the classification.
-        - If unsure, choose the most probable class and set lower confidence.
-
-        Do not include any other fields.
-        Do not add comments.
-        Do not generate customer replies.
-    """).strip()
-
-
-CLASSIFICATION_PROMPT = _build_classification_prompt()
-
-
 class LLMTicketClassifier:
     def __init__(
         self,
         client_pool: LLMClientPool,
         settings_storage: LLMRuntimeSettingsStorage,
+        prompt_storage: LLMPromptStorage,
     ) -> None:
         self._client_pool = client_pool
         self._settings_storage = settings_storage
+        self._prompt_storage = prompt_storage
         self.logger = logging.getLogger("llm_ticket_classifier")
 
     async def _classification_settings(self) -> RuntimeClassificationSettings:
         return await self._settings_storage.get_classification()
+
+    async def _build_classification_prompt(self, brand: Brand) -> str:
+        prompt_template = await self._prompt_storage.get_classification(brand)
+        return prompt_template.text.format(
+            customer_support=MessageCategory.CUSTOMER_SUPPORT.value,
+            marketing_or_spam=MessageCategory.MARKETING_OR_SPAM.value,
+            categories_for_prompt=MessageCategory.for_prompt(),
+        )
+
+    @staticmethod
+    def _build_classification_message(ticket: Ticket) -> str:
+        via_channel = ticket.via.channel if ticket.via and ticket.via.channel else "unknown"
+        sender = ticket.via.source.from_ if ticket.via and ticket.via.source else None
+        sender_email = sender.address if sender else ""
+        sender_name = sender.name if sender else ""
+
+        subject = ticket.subject or ticket.raw_subject
+        body = (ticket.description or "").strip()
+        return dedent(f"""
+                [TICKET]
+                id: {ticket.id}
+                brand: {ticket.brand.name if ticket.brand else ""}
+                channel: {via_channel}
+                created_at: {ticket.created_at}
+
+                [CUSTOMER]
+                email: {sender_email}
+                name: {sender_name}
+
+                [MESSAGE]
+                subject:
+                {subject}
+
+                body:
+                {body}
+            """)
 
     async def _classify(
         self,
@@ -108,13 +97,14 @@ class LLMTicketClassifier:
         settings: RuntimeClassificationSettings,
         session_id: str,
     ) -> MessageClassification:
-        content = f"#{ticket.id}\nSubject:\n{ticket.subject}\nDescription:\n{ticket.description}"
+        content = self._build_classification_message(ticket)
         try:
+            system_prompt = await self._build_classification_prompt(ticket.brand)
             text = await client.chat(
                 messages=[{"content": content, "role": "user"}],
                 settings=settings,
                 session_id=session_id,
-                system_prompt=CLASSIFICATION_PROMPT,
+                system_prompt=system_prompt,
             )
             data = json.loads(extract_json_block(text))
             return MessageClassification(**data)

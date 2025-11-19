@@ -23,12 +23,12 @@ from src.tickets_filter.cache import tickets_filter_cache
 
 
 @asynccontextmanager
-async def log_context(ticket_id: int, brand: Brand):
+async def log_context(ticket_id: int, brand: Brand, iteration_id: str):
     token = log_ctx.set({
         "brand": brand.value,
         "job_type": JobType.INITIAL_REPLY.value,
         "ticket_id": ticket_id,
-        "iteration_id": uuid.uuid4().hex[:8],
+        "iteration_id": iteration_id,
     })
     try:
         yield
@@ -52,8 +52,8 @@ class InitialReplyWorker(Service):
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._llm_client_pool = llm_client_pool
-        self._ticket_classifier = LLMTicketClassifier(llm_client_pool, settings_storage)
-        self._reply_generator = LLMReplyGenerator(llm_client_pool, prompt_storage)
+        self._ticket_classifier = LLMTicketClassifier(llm_client_pool, settings_storage, prompt_storage)
+        self._reply_generator = LLMReplyGenerator(llm_client_pool, settings_storage, prompt_storage)
         self._amqp_url = amqp_url
 
     async def run(self) -> None:
@@ -72,18 +72,18 @@ class InitialReplyWorker(Service):
             return True
 
         ticket = message.ticket
-        async with log_context(ticket.id, self.brand):
+        iteration_id = uuid.uuid4().hex[:8]
+        async with log_context(ticket.id, self.brand, iteration_id):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
 
                 async with session.begin():
                     # Filter ticket
-                    session_id = uuid.uuid4().hex
-                    if await self._filter_as_service(session, ticket, session_id):
+                    if await self._filter_as_service(session, ticket, iteration_id):
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Initial reply generation
-                    reply = await self._build_ai_reply(ticket, session_id)
+                    reply = await self._build_ai_reply(ticket, iteration_id)
                     if not reply:
                         return False
                     # Отправка ответа в Zendesk + идемпотентность в БД
@@ -139,21 +139,14 @@ class InitialReplyWorker(Service):
 
     async def _build_ai_reply(self, ticket: Ticket, session_id: str) -> str:
         try:
-            client = self._llm_client_pool.get_client(None)
-            content = f"#{ticket.id}\n{ticket.subject}\n\n{ticket.description}"
-            reply = await client.chat(
-                messages=[{"content": content}],
-                settings=None,
-                session_id=session_id,
-                system_prompt=None,
-            )
+            reply = await self._reply_generator.generate(ticket, session_id)
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
-                return None
-            return None
+                return ""
+            return reply
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
-            return None
+            return ""
 
     async def _save_reply(
         self,
@@ -164,7 +157,7 @@ class InitialReplyWorker(Service):
     ) -> bool:
         body_hash = hashlib.md5(body.encode()).hexdigest()
         recorded = await our_posts_repo.record_our_post(
-            ticket_id=ticket_id, body_hash=body_hash, channel=channel,
+            ticket_id=ticket_id, body_hash=body_hash, body=body, channel=channel,
         )
         if not recorded:
             # такой ответ уже фиксировали — не дублируем
@@ -184,31 +177,3 @@ class InitialReplyWorker(Service):
         except Exception as exc:
             self.logger.error("post_failed", extra={"ticket_id": ticket_id, "error": str(exc)})
             return False
-
-# ----------------------------- Генерация ответа (заглушка AI) -----------------------------
-# def _generate_ai_initial_reply(ticket: Ticket) -> AIReply:
-#     """
-#     Здесь должна быть интеграция с AI/LLM.
-#     Пока — понятная, безопасная заглушка.
-#     """
-#     name = "there"
-#     subject = (ticket.subject or ticket.raw_subject or "").strip()
-#     description = (ticket.description or "").strip()
-#
-#     lines = [f"Hi {name}, thanks for reaching out!"]
-#     if subject:
-#         lines.append(subject)
-#     if description:
-#         lines.append("")
-#         lines.append(description)
-#
-#     lines.append("")
-#     lines.append("Here’s what we can do next: ")
-#     lines.append("• I’ll look into this and get back with details.")
-#     lines.append("")
-#     lines.append("— Support")
-#
-#     return AIReply(
-#         category=AIReplyCategory.CUSTOMER_SUPPORT,
-#         body="\n".join(lines).strip(),
-#     )

@@ -1,8 +1,8 @@
 """
 
-Revision ID: b93b449d43d6
+Revision ID: 14da7a9ecff2
 Revises: 97ec573d3a8e
-Create Date: 2025-11-19 12:08:01.395722
+Create Date: 2025-11-19 22:29:56.777557
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 from src import db
 
 # revision identifiers, used by Alembic.
-revision: str = 'b93b449d43d6'
+revision: str = '14da7a9ecff2'
 down_revision: Union[str, Sequence[str], None] = '97ec573d3a8e'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -37,6 +37,7 @@ def upgrade() -> None:
     sa.Column('updated_at', db.models.UTCDateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('key')
     )
+    op.add_column('our_posts', sa.Column('body', sa.Text(), nullable=False))
     op.alter_column('telegram_users', 'created_at',
                existing_type=postgresql.TIMESTAMP(),
                server_default=None,
@@ -65,6 +66,7 @@ def downgrade() -> None:
                server_default=sa.text('now()'),
                type_=postgresql.TIMESTAMP(),
                existing_nullable=False)
+    op.drop_column('our_posts', 'body')
     op.drop_table('llm_runtime_settings')
     op.drop_table('llm_prompts')
     # ### end Alembic commands ###
