@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy.dialects.postgresql import ENUM, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
 
@@ -222,23 +221,18 @@ class MerchantListing(Base):
     # Amazon report GET_MERCHANT_LISTINGS_ALL_DATA keys
     asin: Mapped[str] = mapped_column(String(20), nullable=False)
     seller_sku: Mapped[str] = mapped_column(String(128), nullable=False)
-
-    item_name: Mapped[str] = mapped_column(Text, nullable=False)  # item-name
-    item_description: Mapped[str | None] = mapped_column(Text, nullable=True)  # item-description
+    item_name: Mapped[str] = mapped_column(Text, nullable=False)
+    item_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     fulfillment_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
-
     # aggregated text for search (item_name + item_description)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
-
-    # vector for semantic search (model: sentence-transformers/all-MiniLM-L6-v2)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
-
+    # tsvector for FTS
+    search_tsv: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
     # audit
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     __table_args__ = (
-        # уникальность строки в рамках бренда/маркетплейса
         UniqueConstraint(
             "brand_id",
             "marketplace_id",
@@ -257,6 +251,11 @@ class MerchantListing(Base):
             "brand_id",
             "marketplace_id",
             "seller_sku",
+        ),
+        Index(
+            "ix_merchant_listings_search_tsv",
+            "search_tsv",
+            postgresql_using="gin",
         ),
     )
 

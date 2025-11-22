@@ -51,7 +51,8 @@ INITIAL_REPLY_PROMPT: dict[Brand, str] = {
       Examples:
         - Customer mentions an Amazon order ID like "206-5253111-7078766" → call `get_order` or `get_full_order`.
         - Customer mentions missing item / wrong item for an Amazon order → call `get_order_items`.
-        - Customer asks about delivery status of an Amazon order but no shipment info present → call a shipment-related tool.
+        - Customer asks about delivery status of an Amazon order but no shipment info present → call
+          a shipment-related tool.
         - Customer message is clearly about eBay (e.g. subject contains "sent a message about ... #144979681263") →
           DO NOT call Amazon tools; respond without tools.
 
@@ -142,7 +143,8 @@ INITIAL_REPLY_PROMPT: dict[Brand, str] = {
 
     Rules:
     - On the FIRST step:
-      - If you need a tool and the order is clearly an Amazon order with a valid Amazon order ID → output ONLY the TOOL CALL JSON.
+      - If you need a tool and the order is clearly an Amazon order with a valid Amazon order ID →
+        output ONLY the TOOL CALL JSON.
       - If you already have enough information → output ONLY the FINAL CUSTOMER REPLY JSON.
     - After receiving a tool result, you MUST output ONLY the FINAL CUSTOMER REPLY JSON.
     - Do NOT mix "tool_call" and "body" in the same response.
