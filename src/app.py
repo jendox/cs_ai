@@ -6,7 +6,11 @@ from src import config, services
 from src.ai.config import LLMRuntimeSettingsStorage
 from src.ai.config.prompt import LLMPromptStorage
 from src.ai.llm_clients.pool import LLMClientPool
+from src.ai.tools.context import LLMContext
+from src.ai.tools.executor import AmazonToolExecutor
 from src.db.sa import Database
+from src.libs.amazon_client.client import AsyncAmazonClient
+from src.libs.amazon_client.enums import HTTPX_MAX_CONNECTIONS, EndpointRegion
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
 from src.workers import InitialReplyWorker, TicketClosedWorker
@@ -24,15 +28,23 @@ async def app():
         async with (
             Database.lifespan(url=settings.postgres.url),
             create_zendesk_client(settings.zendesk) as zendesk_client,
+            AsyncAmazonClient.setup(
+                settings=settings.amazon,
+                max_connection=HTTPX_MAX_CONNECTIONS,
+                region=EndpointRegion.EU,
+            ),
         ):
-            llm_client_pool = LLMClientPool(settings.llm)
-            runtime_storage = LLMRuntimeSettingsStorage()
-            prompt_storage = LLMPromptStorage()
+            amazon_client = AsyncAmazonClient.get_initialized_instance()
+
+            llm_context = LLMContext(
+                client_pool=LLMClientPool(settings.llm),
+                runtime_storage=LLMRuntimeSettingsStorage(),
+                prompt_storage=LLMPromptStorage(),
+                amazon_executor=AmazonToolExecutor(amazon_client),
+            )
             tasks = [
                 Poller(zendesk_client, amqp_url, brand),
-                InitialReplyWorker(
-                    zendesk_client, amqp_url, llm_client_pool, runtime_storage, prompt_storage, brand,
-                ),
+                InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand),
                 # UserReplyWorker(zendesk_client, amqp_url, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                 TicketClosedWorker(zendesk_client, amqp_url, brand),

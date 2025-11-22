@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 import typing
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from functools import partial
-from typing import Callable, Self
+from typing import Self
 
 if typing.TYPE_CHECKING:
     from src.tickets_filter.dto import TicketsFilterRuleDTO
@@ -68,7 +69,7 @@ def _handler_add_spam_subject_pattern(
         spam_subject_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
 
 
-class TicketsFilterRuleKind(str, Enum):
+class TicketsFilterRuleKind(StrEnum):
     SYSTEM_DOMAIN = "system_domain"
     SYSTEM_ADDRESS = "system_address"
     ADDRESS_HINT = "address_hint"

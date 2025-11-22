@@ -1,6 +1,6 @@
 import hashlib
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
@@ -9,7 +9,7 @@ from src import datetime_utils
 from src.libs.zendesk_client.models import Ticket
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     QUEUED = "queued"
     PROCESSING = "processing"
     DONE = "done"
@@ -17,7 +17,7 @@ class JobStatus(str, Enum):
     DEAD = "dead"
 
 
-class JobType(str, Enum):
+class JobType(StrEnum):
     INITIAL_REPLY = "initial_reply"
     USER_REPLY = "user_reply"
     AGENT_DIRECTIVE = "agent_directive"

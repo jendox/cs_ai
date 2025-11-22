@@ -19,9 +19,9 @@ Public API:
 - TicketsFilter      — main classifier.
 """
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable
 
 from src.libs.zendesk_client.models import Ticket
 from src.tickets_filter import helpers

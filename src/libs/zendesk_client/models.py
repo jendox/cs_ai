@@ -1,6 +1,6 @@
 from datetime import datetime
-from enum import Enum
-from typing import Annotated, Any, TypeAlias
+from enum import IntEnum, StrEnum
+from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
@@ -13,12 +13,12 @@ def _upper_case(value: str | None) -> str | None:
     return None if value is None else value.upper()
 
 
-OptionalStr: TypeAlias = Annotated[str | None, Field(default=None)]
-OptionalInt: TypeAlias = Annotated[int | None, Field(default=None)]
-OptionalBool: TypeAlias = Annotated[bool | None, Field(default=None)]
-OptionalDatetime: TypeAlias = Annotated[datetime | None, Field(default=None)]
-OptionalIntList: TypeAlias = Annotated[list[int] | None, Field(default=None)]
-OptionalStrList: TypeAlias = Annotated[list[str] | None, Field(default=None)]
+OptionalStr: type = Annotated[str | None, Field(default=None)]
+OptionalInt: type = Annotated[int | None, Field(default=None)]
+OptionalBool: type = Annotated[bool | None, Field(default=None)]
+OptionalDatetime: type = Annotated[datetime | None, Field(default=None)]
+OptionalIntList: type = Annotated[list[int] | None, Field(default=None)]
+OptionalStrList: type = Annotated[list[str] | None, Field(default=None)]
 
 AGENT_IDS = {
     372174069320,
@@ -27,7 +27,7 @@ AGENT_IDS = {
 }
 
 
-class Brand(int, Enum):
+class Brand(IntEnum):
     # CLEOCORA = 13102068919196
     # SMARTPARTS = 360001509619
     # SUPERSELF = 360001148379
@@ -44,7 +44,7 @@ class Brand(int, Enum):
         return "??"
 
 
-class TicketStatus(str, Enum):
+class TicketStatus(StrEnum):
     NEW = "NEW"
     OPEN = "OPEN"
     PENDING = "PENDING"
@@ -66,29 +66,29 @@ class TicketStatus(str, Enum):
         return {cls.NEW, cls.OPEN, cls.PENDING, cls.HOLD, cls.SOLVED, cls.CLOSED}
 
 
-class TicketPriority(str, Enum):
+class TicketPriority(StrEnum):
     LOW = "LOW"
     NORMAL = "NORMAL"
     HIGH = "HIGH"
     URGENT = "URGENT"
 
 
-class TicketType(str, Enum):
+class TicketType(StrEnum):
     QUESTION = "QUESTION"
     INCIDENT = "INCIDENT"
     PROBLEM = "PROBLEM"
     TASK = "TASK"
 
 
-NormalizedTicketStatus: TypeAlias = Annotated[
+NormalizedTicketStatus: type = Annotated[
     TicketStatus,
     BeforeValidator(_normalize_status),
 ]
-NormalizedTicketPriority: TypeAlias = Annotated[
+NormalizedTicketPriority: type = Annotated[
     TicketPriority,
     BeforeValidator(_upper_case),
 ]
-NormalizedTicketType: TypeAlias = Annotated[
+NormalizedTicketType: type = Annotated[
     TicketType,
     BeforeValidator(_upper_case),
 ]
@@ -155,7 +155,6 @@ class Ticket(BaseModel):
 
     def to_json_str(self) -> str:
         return self.model_dump_json(
-            ensure_ascii=True,
             exclude_none=True,
             by_alias=True,
         )

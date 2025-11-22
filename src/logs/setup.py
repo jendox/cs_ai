@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from src.logs.filters import ContextFilter, DedupFilter, RedactFilter
@@ -10,7 +10,7 @@ __all__ = (
 )
 
 
-class LogEnvironment(str, Enum):
+class LogEnvironment(StrEnum):
     DEV = "development"
     PROD = "production"
 

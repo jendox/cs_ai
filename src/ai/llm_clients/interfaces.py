@@ -15,5 +15,5 @@ class LLMClientInterface(Protocol):
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
         session_id: str,
         system_prompt: str,
-        tools: list | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> str: ...

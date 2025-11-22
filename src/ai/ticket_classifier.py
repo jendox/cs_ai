@@ -1,7 +1,7 @@
 import json
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from textwrap import dedent
 
 from pydantic import BaseModel, Field
@@ -14,13 +14,13 @@ from src.ai.utils import extract_json_block
 from src.libs.zendesk_client.models import Brand, Ticket
 
 
-class MessageCategory(str, Enum):
+class MessageCategory(StrEnum):
     CUSTOMER_SUPPORT = "customer_support"
     MARKETING_OR_SPAM = "marketing_or_spam"
 
     @classmethod
     def all(cls) -> list[str]:
-        return [member.value for member in cls]
+        return list(cls)
 
     @classmethod
     def for_prompt(cls) -> str:

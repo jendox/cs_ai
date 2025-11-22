@@ -1,5 +1,5 @@
 from contextvars import ContextVar
-from enum import Enum
+from enum import StrEnum
 from typing import Self
 
 from pydantic import BaseModel, EmailStr, SecretStr
@@ -57,7 +57,7 @@ class PostgresSettings(BaseModel):
 
 # ========== LLM SETTINGS ==========
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     OPENAI = "openai"
     GOOGLE = "google"
     ANTHROPIC = "anthropic"

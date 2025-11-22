@@ -2,27 +2,20 @@ import json
 import logging
 from textwrap import dedent
 
-from src.ai.config import LLMRuntimeSettingsStorage, RuntimeResponseSettings
-from src.ai.config.prompt import LLMPromptStorage
-from src.ai.llm_clients import LLMClientInterface, LLMClientPool
+from src.ai.config import RuntimeResponseSettings
+from src.ai.llm_clients import LLMClientInterface
+from src.ai.tools.context import LLMContext
 from src.ai.utils import extract_json_block
 from src.libs.zendesk_client.models import Ticket
 
 
 class LLMReplyGenerator:
-    def __init__(
-        self,
-        client_pool: LLMClientPool,
-        settings_storage: LLMRuntimeSettingsStorage,
-        prompt_storage: LLMPromptStorage,
-    ) -> None:
-        self._client_pool = client_pool
-        self._settings_storage = settings_storage
-        self._prompt_storage = prompt_storage
+    def __init__(self, llm_context: LLMContext) -> None:
+        self._llm_context = llm_context
         self.logger = logging.getLogger("llm_reply_generator")
 
     async def _response_settings(self) -> RuntimeResponseSettings:
-        return await self._settings_storage.get_response()
+        return await self._llm_context.runtime_storage.get_response()
 
     @staticmethod
     def _build_initial_reply_message(ticket: Ticket) -> str:
@@ -57,6 +50,70 @@ class LLMReplyGenerator:
             - Write the first helpful and friendly response.
         """)
 
+    async def _run_agent_loop(
+        self,
+        client: LLMClientInterface,
+        settings: RuntimeResponseSettings,
+        session_id: str,
+        system_prompt: str,
+        user_content: str,
+    ) -> str | None:
+        messages = [{"content": user_content, "role": "user"}]
+        tools = self._llm_context.amazon_executor.tools
+
+        while True:
+            raw_text = await client.chat(
+                messages=messages,
+                settings=settings,
+                session_id=session_id,
+                system_prompt=system_prompt,
+                tools=tools,
+            )
+            try:
+                payload = extract_json_block(raw_text)
+                # print(repr(payload))
+                data = json.loads(payload)
+            except Exception as exc:
+                self.logger.warning(
+                    "json_parse_failed",
+                    extra={"raw": raw_text[:200], "session_id": session_id, "error": str(exc)},
+                )
+                raise
+
+            tool_call = data.get("tool_call")
+            if tool_call:
+                name = tool_call["name"]
+                args = tool_call.get("arguments", {})
+                try:
+                    result = await self._llm_context.amazon_executor.execute(name, args)
+                except Exception as exc:
+                    self.logger.warning(
+                        "tool_failed",
+                        extra={"tool": name, "session_id": session_id, "error": str(exc)},
+                    )
+                    raise
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": json.dumps({
+                            "tool": name,
+                            "arguments": args,
+                            "result": result,
+                        }),
+                    },
+                )
+                continue
+
+            body = data.get("body", "")
+            if not isinstance(body, str):
+                self.logger.warning(
+                    "invalid_body",
+                    extra={"data": data, "session_id": session_id},
+                )
+                raise ValueError("Invalid 'body' field")
+
+            return body.strip()
+
     async def _make_llm_request(
         self,
         client: LLMClientInterface,
@@ -64,39 +121,23 @@ class LLMReplyGenerator:
         settings: RuntimeResponseSettings,
         session_id: str,
     ) -> str:
-        try:
-            content = self._build_initial_reply_message(ticket)
-            system_prompt = await self._prompt_storage.get_initial_reply(ticket.brand)
-            text = await client.chat(
-                messages=[{"content": content, "role": "user"}],
-                settings=settings,
-                session_id=session_id,
-                system_prompt=system_prompt.text,
-            )
-            data = json.loads(extract_json_block(text))
-            body = data.get("body")
-            if not isinstance(body, str) or not body.strip():
-                raise ValueError("Invalid or empty 'body' field")
+        content = self._build_initial_reply_message(ticket)
+        system_prompt = await self._llm_context.prompt_storage.get_initial_reply(ticket.brand)
 
-            return body.strip()
-
-        except Exception as exc:
-            self.logger.warning(
-                "llm_generate.error",
-                extra={
-                    "session_id": session_id,
-                    "error": str(exc),
-                    "raw_text": text[:200],
-                },
-            )
-            return ""
+        return await self._run_agent_loop(
+            client=client,
+            settings=settings,
+            session_id=session_id,
+            system_prompt=system_prompt.text,
+            user_content=content,
+        )
 
     async def generate(self, ticket: Ticket, session_id: str) -> str:
         settings = await self._response_settings()
-        llm_settings = self._client_pool.llm_settings
+        llm_settings = self._llm_context.client_pool.llm_settings
         provider = settings.provider or llm_settings.default_provider
         model = settings.model or llm_settings.get_provider_settings(provider).model
         cfg = settings.model_copy(update={"model": model})
-        client = self._client_pool.get_client(provider)
+        client = self._llm_context.client_pool.get_client(provider)
 
         return await self._make_llm_request(client, ticket, cfg, session_id)

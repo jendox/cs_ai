@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
-from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
@@ -20,9 +21,9 @@ class UTCDateTime(TypeDecorator):
             except Exception:
                 raise ValueError(f"Invalid ISO datetime: {value!r}")
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=UTC)
         else:
-            value = value.astimezone(timezone.utc)
+            value = value.astimezone(UTC)
         return value
 
     def process_result_value(self, value, dialect):
@@ -30,10 +31,10 @@ class UTCDateTime(TypeDecorator):
             return None
         if isinstance(value, str):
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 
 class Base(DeclarativeBase):
@@ -175,7 +176,7 @@ class TicketsFilterRule(Base):
 
 # ========== LLM ==========
 
-class LLMRuntimeSettingsKey(str, Enum):
+class LLMRuntimeSettingsKey(StrEnum):
     CLASSIFICATION = "classification"
     RESPONSE = "response"
 
@@ -191,7 +192,7 @@ class LLMRuntimeSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
-class LLMPromptKey(str, Enum):
+class LLMPromptKey(StrEnum):
     INITIAL_REPLY = "initial_reply"
     CLASSIFICATION = "classification"
 
@@ -210,10 +211,60 @@ class LLMPrompt(Base):
     comment: Mapped[str] = mapped_column(Text, nullable=True)
 
 
+# ========== LLM ==========
+
+class MerchantListing(Base):
+    __tablename__ = "merchant_listings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    marketplace_id: Mapped[int] = mapped_column(String(20), nullable=False, index=True)
+    # Amazon report GET_MERCHANT_LISTINGS_ALL_DATA keys
+    asin: Mapped[str] = mapped_column(String(20), nullable=False)
+    seller_sku: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    item_name: Mapped[str] = mapped_column(Text, nullable=False)  # item-name
+    item_description: Mapped[str | None] = mapped_column(Text, nullable=True)  # item-description
+    fulfillment_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    # aggregated text for search (item_name + item_description)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # vector for semantic search (model: sentence-transformers/all-MiniLM-L6-v2)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+
+    # audit
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        # уникальность строки в рамках бренда/маркетплейса
+        UniqueConstraint(
+            "brand_id",
+            "marketplace_id",
+            "asin",
+            "seller_sku",
+            name="uq_merchant_listings_brand_marketplace_asin_sku",
+        ),
+        Index(
+            "ix_merchant_listings_brand_marketplace_asin",
+            "brand_id",
+            "marketplace_id",
+            "asin",
+        ),
+        Index(
+            "ix_merchant_listings_brand_marketplace_sku",
+            "brand_id",
+            "marketplace_id",
+            "seller_sku",
+        ),
+    )
+
+
 # ========== TELEGRAM ==========
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
     USER = "user"

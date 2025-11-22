@@ -36,7 +36,7 @@ class GoogleLLMClient(LLMClientInterface):
                 continue
 
             role = message.get("role", "user")
-            if role not in {"user", "assistant"}:
+            if role not in {"user", "model"}: # Gemini supports 'user' & 'model' roles only
                 role = "user"
 
             contents.append(
@@ -53,10 +53,10 @@ class GoogleLLMClient(LLMClientInterface):
             "max_output_tokens": settings.max_tokens,
         }
 
-        if tools:
+        # if tools:
             # Ожидается формат tools, совместимый с Gemini:
             # [{"name": "...", "description": "...", "parameters": {...}}]
-            config_kwargs["tools"] = tools
+            # config_kwargs["tools"] = tools
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 

@@ -14,8 +14,8 @@ exclude = [
 
 line-length = 120
 
-# Assume Python 3.9
-target-version = "py39"
+# Assume Python 3.12
+target-version = "py312"
 
 [lint.mccabe]
 max-complexity = 7

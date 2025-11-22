@@ -1,7 +1,7 @@
 import hashlib
 import re
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import BaseModel, BeforeValidator, model_validator
@@ -21,18 +21,18 @@ def get_md5_hash(secret: str) -> str:
     return hashlib.md5(secret.encode()).hexdigest()
 
 
-class EventKind(str, Enum):
+class EventKind(StrEnum):
     COMMENT_PUBLIC = "comment_public"
     COMMENT_PRIVATE = "comment_private"
     STATUS_CHANGE = "status_change"
 
 
-class EventSourceType(str, Enum):
+class EventSourceType(StrEnum):
     COMMENT = "comment"
     STATUS = "status"
 
 
-class EventAuthorRole(str, Enum):
+class EventAuthorRole(StrEnum):
     USER = "user"
     AGENT = "agent"
     SYSTEM = "system"
