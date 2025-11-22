@@ -53,7 +53,7 @@ class LocksRepository(BaseRepository):
             raise AcquireLockError(name, current_holder)
         self.logger.debug("lock.acquired", extra={"data": {"name": name, "holder": holder}})
 
-    async def release_lock(self, *, name: str, holder: str):
+    async def release_lock(self, *, name: str, holder: str) -> None:
         stmt = delete(LockEntity).where(
             and_(
                 LockEntity.name == name,

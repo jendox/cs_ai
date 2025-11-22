@@ -1,12 +1,10 @@
-import csv
-import io
-
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
 from src.db.models import MerchantListing as MerchantListingEntity
 from src.db.repositories.base import BaseRepository
+from src.libs.amazon_client.schemes import MerchantListingRow
 
 
 class MerchantListingNotExists(Exception): ...
@@ -45,78 +43,66 @@ class MerchantListingRepository(BaseRepository):
             existing[key] = entity
         return existing
 
-    async def sync_from_tsv(
+    async def upsert_many(
         self,
         *,
         brand_id: int,
         marketplace_id: str,
-        tsv_bytes: bytes,
+        rows: list[MerchantListingRow],
     ) -> None:
         """
-        1) парсит TSV (binary -> text -> DictReader)
-        2) делает upsert по (brand_id, marketplace_id, asin1, seller-sku)
-        3) создаёт/обновляет search_text
-        4) пересчитывает search_tsv через to_tsvector
+        Принимает список MerchantListingRow и:
+        - создаёт/обновляет записи в merchant_listings
+        - обновляет search_text
+        - пересчитывает search_tsv для этого brand+marketplace
         """
         now = datetime_utils.utcnow()
-
-        # 1. загружаем существующие записи
+        # 1. all existing rows for brand+marketplace
         existing = await self._get_existing_for_brand_marketplace(
             brand_id=brand_id,
             marketplace_id=marketplace_id,
         )
 
-        # 2. парсинг TSV
-        text = tsv_bytes.decode("utf-8", errors="replace")
-        f = io.StringIO(text)
-        reader = csv.DictReader(f, delimiter="\t")
+        seen_keys: set[tuple[str, str]] = set()
 
-        for row in reader:
-            asin = (row.get("asin1") or "").strip()
-            sku = (row.get("seller-sku") or "").strip()
-            if not asin or not sku:
-                continue
+        # 2. upsert new data
+        for row in rows:
+            key = (row.asin, row.seller_sku)
+            seen_keys.add(key)
 
-            item_name = (row.get("item-name") or "").strip()
-            # в отчётах иногда пусто, поэтому нормализуем до None
-            item_description = (row.get("item-description") or "").strip() or None
-            fulfillment_channel = (row.get("fulfillment-channel") or "").strip() or None
-
-            search_text = _build_search_text(item_name, item_description)
-
-            key = (asin, sku)
             entity = existing.get(key)
 
             if entity is None:
-                # создаём новую запись
                 entity = MerchantListingEntity(
                     brand_id=brand_id,
                     marketplace_id=marketplace_id,
-                    asin=asin,
-                    seller_sku=sku,
-                    item_name=item_name,
-                    item_description=item_description,
-                    fulfillment_channel=fulfillment_channel,
-                    search_text=search_text,
+                    asin=row.asin,
+                    seller_sku=row.seller_sku,
+                    item_name=row.item_name or "",
+                    item_description=row.item_description,
+                    fulfillment_channel=row.fulfillment_channel,
+                    search_text=row.search_text or (row.item_name or ""),
                     created_at=now,
                     updated_at=now,
                 )
                 self._session.add(entity)
                 existing[key] = entity
             else:
-                # обновляем существующую
-                entity.item_name = item_name
-                entity.item_description = item_description
-                entity.fulfillment_channel = fulfillment_channel
-                entity.search_text = search_text
+                entity.item_name = row.item_name or ""
+                entity.item_description = row.item_description
+                entity.fulfillment_channel = row.fulfillment_channel
+                entity.search_text = row.search_text or (row.item_name or "")
                 entity.updated_at = now
 
-        # фиксируем изменения (но пока без search_tsv)
+        # 3. remove records that doesn't exist in report
+        obsolete_keys = set(existing.keys()) - seen_keys
+        for key in obsolete_keys:
+            entity = existing[key]
+            await self._session.delete(entity)
+
         await self._session.flush()
 
-        # 3. одним апдейтом пересчитываем search_tsv для этого brand+marketplace
-        #    тут используется конфигурация 'english'; если захочешь, можно
-        #    вынести в константу или использовать 'simple'
+        # 4. recalculate search_tsv
         stmt_update_tsv = (
             update(MerchantListingEntity)
             .where(MerchantListingEntity.brand_id == brand_id)

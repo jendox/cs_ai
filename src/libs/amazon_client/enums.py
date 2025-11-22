@@ -28,7 +28,28 @@ class MarketplaceId(StrEnum):
     # US marketplace
     US = "ATVPDKIKX0DER"
 
+    @classmethod
+    def eu_marketplaces(cls) -> set["MarketplaceId"]:
+        return {marketplace for marketplace in cls if marketplace != cls.US}
+
 
 class FulfillmentChannel(StrEnum):
     AFN = "AFN"
     MFN = "MFN"
+
+
+class ReportType(StrEnum):
+    GET_MERCHANT_LISTINGS_ALL_DATA = "GET_MERCHANT_LISTINGS_ALL_DATA"
+
+
+class ReportStatus(StrEnum):
+    DONE = "DONE"
+    CANCELLED = "CANCELLED"
+    FATAL = "FATAL"
+    IN_QUEUE = "IN_QUEUE"
+    IN_PROGRESS = "IN_PROGRESS"
+    DONE_NO_DATA = "DONE_NO_DATA"
+
+    @classmethod
+    def failed(cls) -> set["ReportStatus"]:
+        return {cls.FATAL, cls.CANCELLED}

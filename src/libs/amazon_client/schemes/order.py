@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_pascal
 
-from .enums import FulfillmentChannel
+from src.libs.amazon_client.enums import FulfillmentChannel
 
 OptionalStr: type = Annotated[str | None, Field(default=None)]
 """Type alias for optional string fields with default None value."""
