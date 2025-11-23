@@ -1,5 +1,9 @@
 import re
 
+from src.ai.config.runtime import TSettings
+from src.ai.context import LLMContext
+from src.ai.llm_clients import LLMClientInterface
+
 SPLIT_PARTS = 2
 
 
@@ -44,3 +48,20 @@ def extract_json_block(raw: str) -> str:
         raise LLMJsonParseError("Empty JSON object extracted from LLM response")
 
     return json_str
+
+
+def resolve_llm_client_and_cfg(
+    llm_context: LLMContext,
+    settings: TSettings,
+) -> tuple[LLMClientInterface, TSettings]:
+    """Resolve provider, model and return (client, final_cfg)."""
+    llm_settings = llm_context.client_pool.llm_settings
+
+    provider = settings.provider or llm_settings.default_provider
+    provider_settings = llm_settings.get_provider_settings(provider)
+    model = settings.model or provider_settings.model
+
+    final_cfg = settings.model_copy(update={"model": model})
+    client = llm_context.client_pool.get_client(provider)
+
+    return client, final_cfg

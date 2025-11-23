@@ -5,9 +5,10 @@ import anyio
 from src.db import session_local
 from src.db.repositories import AcquireLockError, LocksRepository
 from src.db.repositories.merchant_listing import MerchantListingRepository
-from src.libs.amazon_client.client import AsyncAmazonClient
-from src.libs.amazon_client.enums import MarketplaceId, ReportType
-from src.libs.amazon_client.schemes import MerchantListingRow
+
+from .schemes import MarketplaceId, MerchantListingRow
+from ..ai.amazon_mcp_client import AmazonMCPHttpClient
+from ..libs.zendesk_client.models import Brand
 
 CATALOG_SYNC_LOCK_TTL = 3600
 
@@ -15,23 +16,23 @@ logger = logging.getLogger("catalog_sync")
 
 
 async def sync_catalog_for_brand_all_eu_markets(
-    brand_id: int,
-    amazon_client: AsyncAmazonClient,
+    brand: Brand,
+    amazon_mcp_client: AmazonMCPHttpClient,
 ) -> None:
     markets = MarketplaceId.eu_marketplaces()
 
     async with anyio.create_task_group() as tg:
         for market in markets:
-            tg.start_soon(_sync_single_marketplace, brand_id, market, amazon_client)
+            tg.start_soon(_sync_single_marketplace, brand, market, amazon_mcp_client)
 
 
 async def _sync_single_marketplace(
-    brand_id: int,
+    brand: Brand,
     marketplace: MarketplaceId,
-    amazon_client: AsyncAmazonClient,
+    amazon_mcp_client: AmazonMCPHttpClient,
 ) -> None:
-    extra = {"brand_id": brand_id, "marketplace_id": marketplace.value}
-    lock_name = f"merchant_listing_sync:{brand_id}:{marketplace.value}"
+    extra = {"brand_id": brand.value, "marketplace_id": marketplace.value}
+    lock_name = f"merchant_listing_sync:{brand.value}:{marketplace.value}"
     lock_holer = "catalog_sync"
 
     async with session_local() as session:
@@ -49,15 +50,13 @@ async def _sync_single_marketplace(
             logger.info("sync_started", extra=extra)
 
             try:
-                rows: list[MerchantListingRow] = await amazon_client.get_merchant_listings_all_data(marketplace)
-                if not rows:
-                    raise ValueError(f"Report {ReportType.GET_MERCHANT_LISTINGS_ALL_DATA.name} is empty")
+                rows = await amazon_mcp_client.get_merchant_listings_all_data(str(marketplace.value))
 
                 repo = MerchantListingRepository(session)
                 await repo.upsert_many(
-                    brand_id=brand_id,
-                    marketplace_id=marketplace.value,
-                    rows=rows,
+                    brand_id=brand.value,
+                    marketplace_id=str(marketplace.value),
+                    rows=[MerchantListingRow.model_validate(row) for row in rows],
                 )
                 logger.info("sync_completed", extra=extra)
             except Exception as exc:

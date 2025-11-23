@@ -1,10 +1,11 @@
 import logging
 from textwrap import dedent
 
+from src.ai import utils
+from src.ai.amazon_mcp_client import ToolType
 from src.ai.config import RuntimeResponseSettings
+from src.ai.context import LLMContext
 from src.ai.llm_clients import LLMClientInterface
-from src.ai.tools.amazon_tools import amazon_mcp_tools
-from src.ai.tools.context import LLMContext
 from src.libs.zendesk_client.models import Ticket
 
 
@@ -54,12 +55,12 @@ class LLMReplyGenerator:
         client: LLMClientInterface,
         ticket: Ticket,
         settings: RuntimeResponseSettings,
+        tools: list[ToolType],
     ) -> str:
         content = self._build_initial_reply_message(ticket)
         system_prompt = await self._llm_context.prompt_storage.get_initial_reply(ticket.brand)
 
         messages = [{"content": content, "role": "user"}]
-        tools = amazon_mcp_tools
 
         try:
             text = await client.chat(
@@ -76,10 +77,7 @@ class LLMReplyGenerator:
 
     async def generate(self, ticket: Ticket) -> str:
         settings = await self._response_settings()
-        llm_settings = self._llm_context.client_pool.llm_settings
-        provider = settings.provider or llm_settings.default_provider
-        model = settings.model or llm_settings.get_provider_settings(provider).model
-        cfg = settings.model_copy(update={"model": model})
-        client = self._llm_context.client_pool.get_client(provider)
+        client, cfg = utils.resolve_llm_client_and_cfg(self._llm_context, settings)
+        tools = self._llm_context.amazon_mcp_client.amazon_tools
 
-        return await self._make_llm_request(client, ticket, cfg)
+        return await self._make_llm_request(client, ticket, cfg, tools)

@@ -6,10 +6,10 @@ from textwrap import dedent
 
 from pydantic import BaseModel, Field
 
-from src.ai.config import LLMRuntimeSettingsStorage, RuntimeClassificationSettings
-from src.ai.config.prompt import LLMPromptStorage
+from src.ai import utils
+from src.ai.config import RuntimeClassificationSettings
+from src.ai.context import LLMContext
 from src.ai.llm_clients.interfaces import LLMClientInterface
-from src.ai.llm_clients.pool import LLMClientPool
 from src.ai.utils import extract_json_block
 from src.libs.zendesk_client.models import Brand, Ticket
 
@@ -40,22 +40,15 @@ class LLMTicketDecision:
 
 
 class LLMTicketClassifier:
-    def __init__(
-        self,
-        client_pool: LLMClientPool,
-        settings_storage: LLMRuntimeSettingsStorage,
-        prompt_storage: LLMPromptStorage,
-    ) -> None:
-        self._client_pool = client_pool
-        self._settings_storage = settings_storage
-        self._prompt_storage = prompt_storage
+    def __init__(self, llm_context: LLMContext) -> None:
+        self._llm_context = llm_context
         self.logger = logging.getLogger("llm_ticket_classifier")
 
     async def _classification_settings(self) -> RuntimeClassificationSettings:
-        return await self._settings_storage.get_classification()
+        return await self._llm_context.runtime_storage.get_classification()
 
     async def _build_classification_prompt(self, brand: Brand) -> str:
-        prompt_template = await self._prompt_storage.get_classification(brand)
+        prompt_template = await self._llm_context.prompt_storage.get_classification(brand)
         return prompt_template.text.format(
             customer_support=MessageCategory.CUSTOMER_SUPPORT.value,
             marketing_or_spam=MessageCategory.MARKETING_OR_SPAM.value,
@@ -122,11 +115,7 @@ class LLMTicketClassifier:
                 category=MessageCategory.CUSTOMER_SUPPORT,
                 confidence=0.0,
             )
-        llm_settings = self._client_pool.llm_settings
-        provider = settings.provider or llm_settings.default_provider
-        model = settings.model or llm_settings.get_provider_settings(provider).model
-        cfg = settings.model_copy(update={"model": model})
-        client = self._client_pool.get_client(provider)
+        client, cfg = utils.resolve_llm_client_and_cfg(self._llm_context, settings)
         classification = await self._classify(client, ticket, cfg)
         is_service = (
             classification.category is MessageCategory.MARKETING_OR_SPAM
@@ -137,8 +126,6 @@ class LLMTicketClassifier:
             extra={
                 "category": classification.category.value,
                 "confidence": f"{classification.confidence:.3f}",
-                "provider": provider.value,
-                "model": model,
                 "threshold": settings.threshold,
             },
         )

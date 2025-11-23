@@ -107,6 +107,15 @@ class LLMSettings(BaseModel):
         self.default_provider = provider
 
 
+class MCPSettings(BaseModel):
+    host: str
+    port: int
+
+    @property
+    def url(self) -> str:
+        return f"http://{self.host}:{self.port}/mcp"
+
+
 class AppSettings(BaseSettings):
     zendesk: ZendeskSettings
     rabbitmq: RabbitMQSettings
@@ -114,6 +123,7 @@ class AppSettings(BaseSettings):
     telegram: TelegramSettings
     postgres: PostgresSettings
     llm: LLMSettings
+    mcp: MCPSettings
 
     model_config = SettingsConfigDict(
         env_file=".env",

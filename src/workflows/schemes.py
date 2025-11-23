@@ -1,4 +1,21 @@
+from enum import StrEnum
+
 from pydantic import BaseModel, model_validator
+
+
+class MarketplaceId(StrEnum):
+    # EU marketplaces
+    UK = "A1F83G8C2ARO7P"
+    DE = "A1PA6795UKMFR9"
+    FR = "A13V1IB3VIYZZH"
+    IT = "APJ6JRA9NG5V4"
+    ES = "A1RKKUPIHCS9HS"
+    # US marketplace
+    US = "ATVPDKIKX0DER"
+
+    @classmethod
+    def eu_marketplaces(cls) -> set["MarketplaceId"]:
+        return {marketplace for marketplace in cls if marketplace != cls.US}
 
 
 class MerchantListingRow(BaseModel):

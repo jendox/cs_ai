@@ -5,8 +5,8 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from src.ai.amazon_mcp_client import AmazonMCPHttpClient
 from src.db.models import UserRole
-from src.libs.amazon_client.client import AsyncAmazonClient
 from src.libs.zendesk_client.models import Brand
 from src.telegram.filters import RoleRequired
 from src.workflows.catalog_sync import sync_catalog_for_brand_all_eu_markets
@@ -26,5 +26,5 @@ async def sync_catalog(message: Message):
         tg.start_soon(
             sync_catalog_for_brand_all_eu_markets,
             brand,
-            AsyncAmazonClient.get_initialized_instance(),
+            AmazonMCPHttpClient.get_initialized_instance(),
         )

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import datetime_utils
 from src.db.models import MerchantListing as MerchantListingEntity
 from src.db.repositories.base import BaseRepository
-from src.libs.amazon_client.schemes import MerchantListingRow
+from src.workflows.schemes import MerchantListingRow
 
 
 class MerchantListingNotExists(Exception): ...

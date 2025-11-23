@@ -6,9 +6,9 @@ import httpx
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
 from src.ai.ticket_classifier import LLMTicketClassifier
-from src.ai.tools.context import LLMContext
 from src.db import session_local
 from src.db.repositories import OurPostsRepository, TicketsRepository
 from src.jobs.models import InitialReplyMessage, JobType
@@ -48,9 +48,7 @@ class InitialReplyWorker(Service):
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._llm_context = llm_context
-        self._ticket_classifier = LLMTicketClassifier(
-            llm_context.client_pool, llm_context.runtime_storage, llm_context.prompt_storage,
-        )
+        self._ticket_classifier = LLMTicketClassifier(llm_context)
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
 

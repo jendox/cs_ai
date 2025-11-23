@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +15,10 @@ __all__ = (
     "RuntimeResponseSettings",
     "RuntimeClassificationSettings",
     "LLMRuntimeSettingsStorage",
+    "TSettings",
 )
+
+TSettings = TypeVar("TSettings", bound="BaseLLMRuntimeSettings")
 
 
 class BaseLLMRuntimeSettings(BaseModel):
