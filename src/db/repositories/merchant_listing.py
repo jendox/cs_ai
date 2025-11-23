@@ -116,8 +116,6 @@ class MerchantListingRepository(BaseRepository):
         )
         await self._session.execute(stmt_update_tsv)
 
-        await self._session.commit()
-
     async def search_by_text(
         self,
         *,

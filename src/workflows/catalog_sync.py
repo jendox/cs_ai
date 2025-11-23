@@ -11,7 +11,7 @@ from src.libs.amazon_client.schemes import MerchantListingRow
 
 CATALOG_SYNC_LOCK_TTL = 3600
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("catalog_sync")
 
 
 async def sync_catalog_for_brand_all_eu_markets(
@@ -61,6 +61,6 @@ async def _sync_single_marketplace(
                 )
                 logger.info("sync_completed", extra=extra)
             except Exception as exc:
-                logger.exception("sync_failed", extra={**extra, "error": str(exc)})
+                logger.info("sync_failed", extra={**extra, "error": str(exc)})
             finally:
                 await lock_repo.release_lock(name=lock_name, holder=lock_holer)

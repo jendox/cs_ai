@@ -51,14 +51,11 @@ async def app():
                 TicketClosedWorker(zendesk_client, amqp_url, brand),
                 # TelegramAdmin(settings.telegram, brand),
             ]
+            # синхронизация каталога один раз при запуске приложения, Т.к. бд пустая
+            # дальше нужно запускать периодически через админку, т.к. данные меняются редко
+            await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand.value, amazon_client)
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(
-                    catalog_sync.sync_catalog_for_brand_all_eu_markets,
-                    brand.value,
-                    amazon_client,
-                )
-
                 for task in tasks:
                     tg.start_soon(services.supervise, task)
 
