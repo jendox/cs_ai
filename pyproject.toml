@@ -16,4 +16,5 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.44",
     "asyncpg>=0.30.0",
     "google-genai>=1.50.1",
+    "fastmcp>=2.13.1",
 ]

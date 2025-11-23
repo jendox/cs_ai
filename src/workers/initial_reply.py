@@ -78,10 +78,10 @@ class InitialReplyWorker(Service):
 
                 async with session.begin():
                     # Filter ticket
-                    if await self._filter_as_service(session, ticket, iteration_id):
+                    if await self._filter_as_service(session, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Initial reply generation
-                    reply = await self._build_ai_reply(ticket, iteration_id)
+                    reply = await self._build_ai_reply(ticket)
                     if not reply:
                         return False
                     # Отправка ответа в Zendesk + идемпотентность в БД
@@ -102,28 +102,23 @@ class InitialReplyWorker(Service):
         self,
         session: AsyncSession,
         ticket: Ticket,
-        session_id: str,
     ) -> bool:
         tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
-        extra = {"session_id": session_id}
         if tickets_filter.is_service_ticket(ticket):
             self.logger.info(
                 "tickets.filtered_as_service",
-                extra={**extra, "decision": "tickets_filter"},
+                extra={"decision": "tickets_filter"},
             )
             return True
         # Фильтрация AI
-        decision = await self._ticket_classifier.decide(ticket, session_id)
+        decision = await self._ticket_classifier.decide(ticket)
         if decision.is_service:
             self.logger.info(
                 "tickets.filtered_as_service",
-                extra={**extra, "decision": "llm_tickets_classifier"},
+                extra={"decision": "llm_tickets_classifier"},
             )
             return True
-        self.logger.info(
-            "tickets.filtered_as_customer",
-            extra=extra,
-        )
+        self.logger.info("tickets.filtered_as_customer")
         return False
 
     async def _mark_unobserved(self, tickets_repo: TicketsRepository, ticket: Ticket) -> bool:
@@ -135,9 +130,9 @@ class InitialReplyWorker(Service):
             self.logger.warning("ticket.update_observing_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return False
 
-    async def _build_ai_reply(self, ticket: Ticket, session_id: str) -> str:
+    async def _build_ai_reply(self, ticket: Ticket) -> str:
         try:
-            reply = await self._reply_generator.generate(ticket, session_id)
+            reply = await self._reply_generator.generate(ticket)
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
             return reply

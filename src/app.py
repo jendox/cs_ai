@@ -14,7 +14,6 @@ from src.libs.amazon_client.enums import HTTPX_MAX_CONNECTIONS, EndpointRegion
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
 from src.workers import InitialReplyWorker, TicketClosedWorker
-from src.workflows import catalog_sync
 from src.zendesk.poller import Poller
 
 logger = logging.getLogger("cs")
@@ -51,9 +50,9 @@ async def app():
                 TicketClosedWorker(zendesk_client, amqp_url, brand),
                 # TelegramAdmin(settings.telegram, brand),
             ]
-            # синхронизация каталога один раз при запуске приложения, Т.к. бд пустая
+            # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
             # дальше нужно запускать периодически через админку, т.к. данные меняются редко
-            await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand.value, amazon_client)
+            # await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand.value, amazon_client)
 
             async with anyio.create_task_group() as tg:
                 for task in tasks:

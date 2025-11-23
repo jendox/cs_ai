@@ -24,7 +24,6 @@ class GoogleLLMClient(LLMClientInterface):
         self,
         messages: list[dict[str, Any]],
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
-        session_id: str,
         system_prompt: str,
         tools: list | None = None,
     ) -> str:
@@ -53,6 +52,9 @@ class GoogleLLMClient(LLMClientInterface):
             "max_output_tokens": settings.max_tokens,
         }
 
+        if tools:
+            config_kwargs["tools"] = tools
+
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
         try:
@@ -65,11 +67,5 @@ class GoogleLLMClient(LLMClientInterface):
             return text
 
         except Exception as exc:
-            self.logger.warning(
-                "llm.google.error",
-                extra={
-                    "session_id": session_id,
-                    "error": str(exc),
-                },
-            )
+            self.logger.warning("llm.google.error", extra={"error": str(exc)})
             return ""

@@ -13,7 +13,6 @@ class LLMClientInterface(Protocol):
         messages: list[dict[str, Any]],
         *,
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
-        session_id: str,
         system_prompt: str,
-        tools: list[dict[str, Any]] | None = None,
+        tools: list | None = None,
     ) -> str: ...

@@ -95,7 +95,6 @@ class LLMTicketClassifier:
         client: LLMClientInterface,
         ticket: Ticket,
         settings: RuntimeClassificationSettings,
-        session_id: str,
     ) -> MessageClassification:
         content = self._build_classification_message(ticket)
         try:
@@ -103,25 +102,18 @@ class LLMTicketClassifier:
             text = await client.chat(
                 messages=[{"content": content, "role": "user"}],
                 settings=settings,
-                session_id=session_id,
                 system_prompt=system_prompt,
             )
             data = json.loads(extract_json_block(text))
             return MessageClassification(**data)
         except Exception as exc:
-            self.logger.warning(
-                "llm_classify.error",
-                extra={
-                    "session_id": session_id,
-                    "error": str(exc),
-                },
-            )
+            self.logger.warning("llm_classify.error", extra={"error": str(exc)})
             return MessageClassification(
                 category=MessageCategory.CUSTOMER_SUPPORT,
                 confidence=0.0,
             )
 
-    async def decide(self, ticket: Ticket, session_id: str) -> LLMTicketDecision:
+    async def decide(self, ticket: Ticket) -> LLMTicketDecision:
         settings = await self._classification_settings()
         if not settings.enabled:
             self.logger.info("settings.disabled")
@@ -135,7 +127,7 @@ class LLMTicketClassifier:
         model = settings.model or llm_settings.get_provider_settings(provider).model
         cfg = settings.model_copy(update={"model": model})
         client = self._client_pool.get_client(provider)
-        classification = await self._classify(client, ticket, cfg, session_id)
+        classification = await self._classify(client, ticket, cfg)
         is_service = (
             classification.category is MessageCategory.MARKETING_OR_SPAM
             and classification.confidence >= settings.threshold

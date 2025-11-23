@@ -170,7 +170,7 @@ class AsyncAmazonClient(httpx.AsyncClient):
                 now = time.time()
             self._last_call[key] = now
 
-    # ---- Request with Error Handling
+    # ---- Request with Error Handling ----
 
     async def _request_with_errors(self, method: str, url: str, **kwargs) -> httpx.Response:
         try:
