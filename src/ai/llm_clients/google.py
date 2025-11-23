@@ -53,6 +53,7 @@ class GoogleLLMClient(LLMClientInterface):
         }
 
         if tools:
+            self.logger.info("chat", extra={"tools": [t.__name__ for t in tools]})
             config_kwargs["tools"] = tools
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None

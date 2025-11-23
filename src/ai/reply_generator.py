@@ -2,10 +2,10 @@ import logging
 from textwrap import dedent
 
 from src.ai import utils
-from src.ai.amazon_mcp_client import ToolType
 from src.ai.config import RuntimeResponseSettings
 from src.ai.context import LLMContext
 from src.ai.llm_clients import LLMClientInterface
+from src.ai.tools import amazon_tools
 from src.libs.zendesk_client.models import Ticket
 
 
@@ -55,7 +55,6 @@ class LLMReplyGenerator:
         client: LLMClientInterface,
         ticket: Ticket,
         settings: RuntimeResponseSettings,
-        tools: list[ToolType],
     ) -> str:
         content = self._build_initial_reply_message(ticket)
         system_prompt = await self._llm_context.prompt_storage.get_initial_reply(ticket.brand)
@@ -67,7 +66,7 @@ class LLMReplyGenerator:
                 messages=messages,
                 settings=settings,
                 system_prompt=system_prompt.text,
-                tools=tools,
+                tools=amazon_tools,
             )
             self.logger.info("make_llm_request.success", extra={"text": text[:200]})
             return text
@@ -78,6 +77,5 @@ class LLMReplyGenerator:
     async def generate(self, ticket: Ticket) -> str:
         settings = await self._response_settings()
         client, cfg = utils.resolve_llm_client_and_cfg(self._llm_context, settings)
-        tools = self._llm_context.amazon_mcp_client.amazon_tools
 
-        return await self._make_llm_request(client, ticket, cfg, tools)
+        return await self._make_llm_request(client, ticket, cfg)
