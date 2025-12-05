@@ -48,7 +48,7 @@ class LLMTicketClassifier:
         return await self._llm_context.runtime_storage.get_classification()
 
     async def _build_classification_prompt(self, brand: Brand) -> str:
-        prompt_template = await self._llm_context.prompt_storage.get_classification(brand)
+        prompt_template = await self._llm_context.prompt_storage.classification_prompt(brand)
         return prompt_template.text.format(
             customer_support=MessageCategory.CUSTOMER_SUPPORT.value,
             marketing_or_spam=MessageCategory.MARKETING_OR_SPAM.value,

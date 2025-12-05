@@ -61,7 +61,12 @@ def resolve_llm_client_and_cfg(
     provider_settings = llm_settings.get_provider_settings(provider)
     model = settings.model or provider_settings.model
 
-    final_cfg = settings.model_copy(update={"model": model})
+    final_cfg = settings.model_copy(
+        update={
+            "provider": provider,
+            "model": model,
+        },
+    )
     client = llm_context.client_pool.get_client(provider)
 
     return client, final_cfg

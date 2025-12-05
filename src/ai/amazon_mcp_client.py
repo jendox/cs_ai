@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, ClassVar, Self
 
 import anyio
 import fastmcp
+
+from src.db import session_local
+from src.db.repositories.merchant_listing import MerchantListingRepository
 
 
 class AmazonMCPHttpClientError(Exception): ...
@@ -33,7 +36,7 @@ class AmazonMCPHttpClient:
         self.url = url
         self._client: fastmcp.Client | None = None
         self._lock = anyio.Lock()
-        self.logger = logging.getLogger("amazon_mcp")
+        self.logger = logging.getLogger("amazon_mcp_client")
 
     # =========================
     #  Singleton / accessor
@@ -131,19 +134,34 @@ class AmazonMCPHttpClient:
         self.logger.info("amazon_mcp.get_order", extra={"order_id": order_id})
         client = await self._get_client()
         result = await client.call_tool("get_order", {"order_id": order_id})
-        return json.loads(result.content[0].text)
+        content = result.structured_content
+        self.logger.info(
+            "get_order.success",
+            extra={"content": json.dumps(content, ensure_ascii=False)},
+        )
+        return content
 
     async def get_order_items(self, order_id: str) -> dict[str, Any]:
         self.logger.info("amazon_mcp.get_order_items", extra={"order_id": order_id})
         client = await self._get_client()
         result = await client.call_tool("get_order_items", {"order_id": order_id})
-        return json.loads(result.content[0].text)
+        content = result.structured_content
+        self.logger.info(
+            "get_order_items.success",
+            extra={"content": json.dumps(content, ensure_ascii=False)},
+        )
+        return content
 
     async def get_full_order(self, order_id: str) -> dict[str, Any]:
         self.logger.info("amazon_mcp.get_full_order", extra={"order_id": order_id})
         client = await self._get_client()
         result = await client.call_tool("get_full_order", {"order_id": order_id})
-        return json.loads(result.content[0].text)
+        content = result.structured_content
+        self.logger.info(
+            "get_full_order.success",
+            extra={"content": json.dumps(content, ensure_ascii=False)},
+        )
+        return content
 
     async def get_merchant_listings_all_data(
         self,
@@ -159,3 +177,142 @@ class AmazonMCPHttpClient:
             {"marketplace_id": marketplace_id},
         )
         return result.data
+
+    async def get_catalog_item_attributes(
+        self,
+        asin: str,
+        marketplace_id: str,
+    ) -> dict[str, Any]:
+        self.logger.info(
+            "amazon_mcp.get_catalog_item_attributes",
+            extra={"asin": asin, "marketplace_id": marketplace_id},
+        )
+        client = await self._get_client()
+        result = await client.call_tool(
+            "get_catalog_item_attributes",
+            {"asin": asin, "marketplace_id": marketplace_id},
+        )
+        content = result.structured_content
+        self.logger.info(
+            "get_catalog_item_attributes.success",
+            extra={"content": json.dumps(content, ensure_ascii=False)},
+        )
+        return content
+
+    async def get_product_by_text(
+        self,
+        query: str,
+        brand_id: int,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        extra = {"query": query, "brand_id": brand_id}
+        query = (query or "").strip()
+        if not query:
+            self.logger.debug("get_product_by_text.not_found", extra=extra)
+            return {"status": "not_found", "candidates": []}
+
+        async with session_local() as session:
+            repo = MerchantListingRepository(session)
+            rows = await repo.search_by_text(
+                brand_id=brand_id,
+                query=query,
+                limit=limit,
+            )
+        if not rows:
+            self.logger.debug("get_product_by_text.not_found", extra=extra)
+            return {"status": "not_found", "candidates": []}
+
+        candidates: list[dict[str, Any]] = []
+
+        for entity, rank in rows:
+            product = await self.get_catalog_item_attributes(entity.asin, entity.marketplace_id)
+            candidates.append({
+                "asin": entity.asin,
+                "marketplace_id": entity.marketplace_id,
+                "seller_sku": entity.seller_sku,
+                "title": entity.item_name,
+                "description": entity.item_description,
+                "rank": rank,
+                "product": product,
+            })
+        self.logger.debug(
+            "get_product_by_text.success",
+            extra={**extra, "products": candidates},
+        )
+
+        if len(candidates) == 1:
+            return {"status": "resolved", "product": candidates[0]}
+
+        return {"status": "multiple_candidates", "candidates": candidates}
+
+    async def get_product_by_asin(
+        self,
+        asin: str,
+        brand_id: int,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        extra = {"asin": asin, "brand_id": brand_id}
+        async with session_local() as session:
+            repo = MerchantListingRepository(session)
+            listings = await repo.search_by_asin(
+                brand_id=brand_id,
+                asin=asin,
+            )
+        if not listings:
+            self.logger.debug("get_product_by_asin.not_found", extra=extra)
+            return {"status": "not_found", "variants": []}
+
+        variants: list[dict[str, Any]] = []
+
+        for entity in listings[:limit]:
+            product = await self.get_catalog_item_attributes(entity.asin, entity.marketplace_id)
+            variants.append({
+                "asin": entity.asin,
+                "marketplace_id": entity.marketplace_id,
+                "seller_sku": entity.seller_sku,
+                "item_name": entity.item_name,
+                "item_description": entity.item_description,
+                "product": product,
+            })
+        self.logger.debug(
+            "get_product_by_asin.success",
+            extra={**extra, "products": variants},
+        )
+
+        if len(variants) == 1:
+            return {"status": "resolved", "product": variants[0]}
+
+        return {"status": "multiple_variants", "variants": variants}
+
+    async def get_products_by_order_id(
+        self,
+        order_id: str,
+    ) -> dict[str, Any]:
+        full_order = await self.get_full_order(order_id)
+        if not full_order:
+            self.logger.debug("get_products_by_order_id.not_found", extra={"order_id": order_id})
+            return {"status": "not_found", "variants": []}
+
+        items = full_order["items"]
+        marketplace_id = full_order["order"]["marketplace_id"]
+
+        products: list[dict[str, Any]] = []
+        for item in items:
+            asin = item.get("ASIN")
+            if not asin:
+                continue
+            product = await self.get_catalog_item_attributes(asin, marketplace_id)
+            products.append({
+                "asin": asin,
+                "marketplace_id": marketplace_id,
+                "order_item": item,
+                "product": product,
+            })
+        self.logger.debug(
+            "get_products_by_order_id",
+            extra={"order_id": order_id, "products": products},
+        )
+        return {
+            "order": full_order["order"],
+            "products": products,
+        }

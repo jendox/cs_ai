@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Self
 
 from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ENUM, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
+
+from src import datetime_utils
 
 
 class UTCDateTime(TypeDecorator):
@@ -193,6 +196,7 @@ class LLMRuntimeSettings(Base):
 
 class LLMPromptKey(StrEnum):
     INITIAL_REPLY = "initial_reply"
+    FOLLOWUP_REPLY = "followup_reply"
     CLASSIFICATION = "classification"
 
 
@@ -217,7 +221,7 @@ class MerchantListing(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    marketplace_id: Mapped[int] = mapped_column(String(20), nullable=False, index=True)
+    marketplace_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     # Amazon report GET_MERCHANT_LISTINGS_ALL_DATA keys
     asin: Mapped[str] = mapped_column(String(20), nullable=False)
     seller_sku: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -278,6 +282,10 @@ class UserRole(StrEnum):
             UserRole.SUPERADMIN: 3,
         }[self]
 
+    @classmethod
+    def allowed_new_users(cls) -> list[Self]:
+        return [cls.ADMIN, cls.USER]
+
 
 user_role_enum = ENUM(UserRole, name="user_role_enum")
 
@@ -290,5 +298,13 @@ class TelegramUser(Base):
     username: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[UserRole] = mapped_column(user_role_enum, nullable=False, default=UserRole.USER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=datetime_utils.utcnow(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=datetime_utils.utcnow(),
+    )

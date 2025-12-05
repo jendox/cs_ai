@@ -1,6 +1,7 @@
 import hashlib
 import uuid
 from contextlib import asynccontextmanager
+from textwrap import dedent
 
 import httpx
 from pydantic import ValidationError
@@ -79,7 +80,7 @@ class InitialReplyWorker(Service):
                     if await self._filter_as_service(session, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
                     # Initial reply generation
-                    reply = await self._build_ai_reply(ticket)
+                    reply = await self._generate_initial_reply(ticket)
                     if not reply:
                         return False
                     # Отправка ответа в Zendesk + идемпотентность в БД
@@ -128,15 +129,37 @@ class InitialReplyWorker(Service):
             self.logger.warning("ticket.update_observing_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return False
 
-    async def _build_ai_reply(self, ticket: Ticket) -> str:
+    async def _generate_initial_reply(self, ticket: Ticket) -> str:
         try:
-            reply = await self._reply_generator.generate(ticket)
+            content = self._build_initial_reply_message(ticket)
+            system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(self.brand)
+            reply = await self._reply_generator.generate(
+                messages=[{"role": "user", "content": content}],
+                system_prompt=system_prompt,
+                brand=self.brand,
+            )
             if not reply:
                 self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
             return reply
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return ""
+
+    @staticmethod
+    def _build_initial_reply_message(ticket: Ticket) -> str:
+        subject = (ticket.subject or ticket.raw_subject or "").strip()
+        body = (ticket.description or "").strip()
+        via_channel = ticket.via.channel if ticket.via and ticket.via.channel else "unknown"
+
+        return dedent(f"""
+            Customer message (via {via_channel}):
+
+            Subject:
+            {subject}
+
+            Message:
+            {body}
+        """).strip()
 
     async def _save_reply(
         self,

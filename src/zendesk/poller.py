@@ -113,7 +113,7 @@ class Poller(Service):
 
     async def _process_open_tickets(self, updated_after: datetime) -> datetime:
         lastest_seen = updated_after
-        async for ticket in self._zendesk_client.iter_tickets(updated_after, self.brand, TicketStatus.active()):
+        async for ticket in self._zendesk_client.iter_updated_tickets(updated_after, self.brand, TicketStatus.active()):
             is_new = await self._upsert_ticket(ticket=ticket, observing=True)
             if is_new:
                 await self.job_queue.publish(
@@ -163,7 +163,7 @@ class Poller(Service):
         tickets_repo: TicketsRepository,
         updated_after: datetime,
     ) -> AsyncGenerator[tuple[Event, Ticket], None]:
-        async for updated_ticket in self._zendesk_client.iter_tickets(
+        async for updated_ticket in self._zendesk_client.iter_updated_tickets(
             updated_after=updated_after,
             brand=self.brand,
             statuses=TicketStatus.all(),
@@ -213,7 +213,7 @@ class Poller(Service):
             and event.author_role == EventAuthorRole.USER
         ):
             await self.job_queue.publish(
-                job_type=JobType.USER_REPLY,
+                job_type=JobType.FOLLOWUP_REPLY,
                 message=UserReplyMessage(
                     ticket_id=event.ticket_id,
                     source_id=event.source_id,

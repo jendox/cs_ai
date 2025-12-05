@@ -34,9 +34,9 @@ class GoogleLLMClient(LLMClientInterface):
             if not text:
                 continue
 
-            role = message.get("role", "user")
-            if role not in {"user", "model"}:  # Gemini supports 'user' & 'model' roles only
-                role = "user"
+            raw_role = message.get("role", "user")
+            # Gemini supports 'user' & 'model' roles only
+            role = "model" if raw_role == "assistant" else "user"
 
             contents.append(
                 types.Content(

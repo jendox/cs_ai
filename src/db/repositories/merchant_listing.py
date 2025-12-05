@@ -120,7 +120,6 @@ class MerchantListingRepository(BaseRepository):
         self,
         *,
         brand_id: int,
-        marketplace_id: str,
         query: str,
         limit: int = 5,
     ) -> list[tuple[MerchantListingEntity, float]]:
@@ -141,7 +140,6 @@ class MerchantListingRepository(BaseRepository):
                 func.ts_rank_cd(MerchantListingEntity.search_tsv, ts_query).label("rank"),
             )
             .where(MerchantListingEntity.brand_id == brand_id)
-            .where(MerchantListingEntity.marketplace_id == marketplace_id)
             .where(MerchantListingEntity.search_tsv.op("@@")(ts_query))
             .order_by(func.ts_rank_cd(MerchantListingEntity.search_tsv, ts_query).desc())
             .limit(limit)
@@ -151,3 +149,19 @@ class MerchantListingRepository(BaseRepository):
         rows = result.all()
         # rows: list[(MerchantListingEntity, rank)]
         return [(row[0], float(row[1])) for row in rows]
+
+    async def search_by_asin(
+        self,
+        *,
+        brand_id: int,
+        asin: str,
+    ) -> list[MerchantListingEntity]:
+        stmt = (
+            select(MerchantListingEntity)
+            .where(MerchantListingEntity.brand_id == brand_id)
+            .where(MerchantListingEntity.asin == asin)
+        )
+
+        result = await self._session.execute(stmt)
+        rows = result.scalars().all()
+        return list(rows)

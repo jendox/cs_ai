@@ -59,6 +59,32 @@ def _add_tickets_commands(role: UserRole) -> list[str]:
     return text
 
 
+def _add_users_commands(role: UserRole) -> list[str]:
+    text = []
+    if role.level >= UserRole.USER.level:
+        text.extend([
+            "<b>Пользователи</b>",
+            "• /me — информация о тебе",
+        ])
+
+    if role.level >= UserRole.ADMIN.level:
+        text.extend([
+            "• /users — список активных пользователей",
+            "• /users all — все пользователи (включая деактивированных)",
+            "• /add_user &lt;telegram_id&gt; &lt;role&gt; [username] — "
+            "добавить/обновить пользователя с указанной ролью",
+            "• /del_user &lt;telegram_id&gt; — деактивировать пользователя",
+        ])
+
+    if role.level >= UserRole.SUPERADMIN.level:
+        text.extend([
+            "• /set_role &lt;telegram_id&gt; &lt;role&gt; — сменить роль (user ↔ admin)",
+            "\n",
+        ])
+
+    return text
+
+
 def _add_future_extensions() -> list[str]:
     return [
         "В будущем здесь появятся:",
@@ -72,6 +98,7 @@ async def cmd_start(message: Message, role: UserRole):
     text_parts = _add_description(message.from_user.full_name, role)
     text_parts.extend(_add_stats_commands(role))
     text_parts.extend(_add_tickets_commands(role))
+    text_parts.extend(_add_users_commands(role))
     text_parts.extend(_add_future_extensions())
 
     await message.answer("\n".join(text_parts))

@@ -19,13 +19,13 @@ class JobStatus(StrEnum):
 
 class JobType(StrEnum):
     INITIAL_REPLY = "initial_reply"
-    USER_REPLY = "user_reply"
+    FOLLOWUP_REPLY = "followup_reply"
     AGENT_DIRECTIVE = "agent_directive"
     TICKET_CLOSED = "ticket_closed"
 
     @classmethod
     def all(cls) -> set["JobType"]:
-        return {cls.INITIAL_REPLY, cls.USER_REPLY, cls.AGENT_DIRECTIVE, cls.TICKET_CLOSED}
+        return {cls.INITIAL_REPLY, cls.FOLLOWUP_REPLY, cls.AGENT_DIRECTIVE, cls.TICKET_CLOSED}
 
 
 def make_dedup_key(*parts) -> str:
@@ -57,7 +57,7 @@ class UserReplyMessage(TicketIdMessage):
 
     @model_validator(mode="after")
     def set_dedup_key(self) -> Self:
-        self.dedup_key = make_dedup_key(self.ticket_id, JobType.USER_REPLY.value, self.source_id)
+        self.dedup_key = make_dedup_key(self.ticket_id, JobType.FOLLOWUP_REPLY.value, self.source_id)
         return self
 
 

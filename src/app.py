@@ -11,7 +11,8 @@ from src.ai.llm_clients.pool import LLMClientPool
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
-from src.workers import InitialReplyWorker, TicketClosedWorker
+from src.telegram.admin import TelegramAdmin
+from src.workers import FollowUpReplyWorker, InitialReplyWorker, TicketClosedWorker
 from src.zendesk.poller import Poller
 
 logger = logging.getLogger("cs")
@@ -39,10 +40,10 @@ async def app():
             tasks = [
                 Poller(zendesk_client, amqp_url, brand),
                 InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand),
-                # UserReplyWorker(zendesk_client, amqp_url, brand),
+                FollowUpReplyWorker(zendesk_client, amqp_url, llm_context, brand),
                 # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                 TicketClosedWorker(zendesk_client, amqp_url, brand),
-                # TelegramAdmin(settings.telegram, brand),
+                TelegramAdmin(settings.telegram, brand),
             ]
             # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
             # дальше нужно запускать периодически через админку, т.к. данные меняются редко

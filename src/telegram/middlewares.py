@@ -25,6 +25,8 @@ class AuthenticationMiddleware(BaseMiddleware):
     ) -> Any:
         user = event.from_user
 
+        data["telegram_admin"] = self._telegram_admin
+
         if user is not None:
             data["role"] = await self._telegram_admin.get_user_role(user.id)
             data["telegram_id"] = user.id
