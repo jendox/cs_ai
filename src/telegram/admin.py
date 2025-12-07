@@ -2,20 +2,25 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from src.ai.context import LLMContext
 from src.config import TelegramSettings
 from src.db import session_local
 from src.db.models import UserRole
 from src.db.repositories.telegram import TelegramUsersRepository, UserNotFound
-from src.libs.zendesk_client.models import Brand
 from src.services import Service
 from src.telegram.handlers import routers
-from src.telegram.middlewares import AuthenticationMiddleware
+from src.telegram.middlewares import AuthenticationMiddleware, LLMContextMiddleware
 
 
 class TelegramAdmin(Service):
-    def __init__(self, settings: TelegramSettings, brand: Brand) -> None:
-        super().__init__(name="telegram_admin", brand=brand)
+    def __init__(
+        self,
+        settings: TelegramSettings,
+        llm_context: LLMContext,
+    ) -> None:
+        super().__init__(name="telegram_admin", brand="TELEGRAM")
         self._settings = settings
+        self._llm_context = llm_context
         self._user_roles: dict[int, UserRole] = {}
 
     async def get_user_role(self, telegram_id: int) -> UserRole:
@@ -57,6 +62,8 @@ class TelegramAdmin(Service):
         dp = Dispatcher()
         dp.message.outer_middleware(AuthenticationMiddleware(self))
         dp.callback_query.outer_middleware(AuthenticationMiddleware(self))
+        dp.message.outer_middleware(LLMContextMiddleware(self._llm_context))
+        dp.callback_query.outer_middleware(LLMContextMiddleware(self._llm_context))
 
         dp.include_routers(*routers)
 

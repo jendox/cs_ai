@@ -4,3 +4,4 @@ from .filter_rule import TicketsFilterRuleRepository
 from .locks import AcquireLockError, LocksRepository
 from .our_posts import OurPostsRepository
 from .tickets import TicketNotFound, TicketsRepository
+from .zendesk_settings import ZendeskRuntimeSettingsRepository

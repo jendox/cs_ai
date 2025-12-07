@@ -5,7 +5,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
-from src.db.models import OurPost as OurPostEntity
+from src.db.models import OurPost as OurPostEntity, PostChannel
 from src.db.repositories.base import BaseRepository
 
 __all__ = (
@@ -22,7 +22,7 @@ class OurPostsRepository(BaseRepository):
         ticket_id: int,
         body_hash: str,
         body: str,
-        channel: str = "private",
+        channel: PostChannel,
     ) -> bool:
         post_key = hashlib.md5(f"{ticket_id}:{body_hash}".encode()).hexdigest()
         stmt = (

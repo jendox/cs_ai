@@ -46,7 +46,7 @@ class ZendeskClient:
 
     def __init__(self, http_client: httpx.AsyncClient, settings: ZendeskSettings) -> None:
         http_client.auth = (f"{settings.email}/token", settings.token.get_secret_value())
-        self.http_client = http_client
+        self._http_client = http_client
         self.review_mode = settings.review_mode
         self.logger = logging.getLogger("zendesk_client")
 
@@ -126,7 +126,13 @@ class ZendeskClient:
         )
         raise ZendeskCommentNotFound(f"Comment {comment_id} not found in ticket {ticket_id}.")
 
-    async def add_comment(self, ticket_id: int, comment_text: str) -> None:
+    async def add_comment(
+        self,
+        ticket_id: int,
+        comment_text: str,
+        *,
+        public: bool,
+    ) -> None:
         """Add a new comment to a ticket.
 
         The comment will be public or private depending on the client's review mode.
@@ -134,6 +140,7 @@ class ZendeskClient:
         Args:
             ticket_id (int): Identifier of the ticket to which the comment is added.
             comment_text (str): Text content of the new comment.
+            public (bool): Public comment if True, else Internal note
 
         Returns:
             None
@@ -141,7 +148,6 @@ class ZendeskClient:
         Raises:
             httpx.HTTPError: If the HTTP request fails or Zendesk returns an error status.
         """
-        public = False if self.review_mode else True
         payload = {"ticket": {"comment": {"body": comment_text, "public": public}}}
 
         await self._request(
@@ -207,7 +213,7 @@ class ZendeskClient:
             httpx.RequestError: If a network-level error occurs.
         """
         try:
-            response = await self.http_client.request(method, url, **kwargs)
+            response = await self._http_client.request(method, url, **kwargs)
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as error:

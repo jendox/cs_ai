@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
@@ -35,6 +35,10 @@ class Brand(IntEnum):
     # TEST
     SUPERSELF = 23064017794844
     SMARTPARTS = 23063999037340
+
+    @classmethod
+    def supported(cls) -> list[Self]:
+        return [cls.SUPERSELF]
 
     @property
     def short(self) -> str:

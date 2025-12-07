@@ -21,10 +21,6 @@ logger = logging.getLogger("telegram_admin")
 router = Router(name=__name__)
 
 
-# =========================
-# /me
-# =========================
-
 @router.message(Command("me"), RoleRequired(UserRole.USER))
 @with_repository(TelegramUsersRepository)
 async def cmd_me(
@@ -56,11 +52,7 @@ async def cmd_me(
         )
 
 
-# =========================
-# /add_user <telegram_id> <role> [username] — UPSERT
-# =========================
-
-@router.message(Command("add_user"), UserArgs(), RoleRequired(UserRole.ADMIN))
+@router.message(Command("add_user"), RoleRequired(UserRole.ADMIN), UserArgs())
 @with_repository(TelegramUsersRepository)
 async def cmd_add_user(
     message: Message,
@@ -134,29 +126,22 @@ async def cmd_add_user(
             await message.answer("⚠️ Ошибка при добавлении/обновлении пользователя. Подробности в логах.")
 
 
-# =========================
-# /del_user <telegram_id> — soft delete + инвалидация
-# =========================
-
-@router.message(Command("del_user"), TelegramId(), RoleRequired(UserRole.ADMIN))
+@router.message(Command("del_user"), RoleRequired(UserRole.ADMIN), TelegramId())
 @with_repository(TelegramUsersRepository)
 async def cmd_del_user(
     message: Message,
     role: UserRole,
     telegram_admin: TelegramAdmin,
-    target_telegram_id: int,
+    telegram_id: int,
     repo: TelegramUsersRepository,
 ) -> None:
     async with log_context(telegram_id=message.from_user.id):
-        extra = {
-            "actor_telegram_id": message.from_user.id if message.from_user else None,
-            "target_telegram_id": target_telegram_id,
-        }
+        extra = {"target_telegram_id": telegram_id}
         try:
-            user = await repo.get_by_telegram_id(target_telegram_id)
+            user = await repo.get_by_telegram_id(telegram_id)
             target_role = UserRole(user.role)
         except UserNotFound:
-            await message.answer(f"Пользователь с telegram_id <code>{target_telegram_id}</code> не найден.")
+            await message.answer(f"Пользователь с telegram_id <code>{telegram_id}</code> не найден.")
             logger.info("del_user.not_found", extra=extra)
             return
 
@@ -166,12 +151,12 @@ async def cmd_del_user(
 
         try:
             await repo.deactivate(user.id)
-            # инвалидация кэша ролей
-            telegram_admin.invalidate_cache_role(target_telegram_id)
+
+            telegram_admin.invalidate_cache_role(telegram_id)
 
             await message.answer(
                 "✅ Пользователь деактивирован:\n\n"
-                f"<b>telegram_id</b>: {target_telegram_id}\n"
+                f"<b>telegram_id</b>: {telegram_id}\n"
                 f"<b>role</b>: {target_role.name.lower()}",
             )
             logger.info(
@@ -183,15 +168,10 @@ async def cmd_del_user(
             await message.answer("⚠️ Ошибка при удалении пользователя. Подробности в логах.")
 
 
-# =========================
-# /set_role <telegram_id> <role> — смена роли USER ↔ ADMIN + инвалидация
-# =========================
-
-@router.message(Command("set_role"), UserArgs(), RoleRequired(UserRole.SUPERADMIN))
+@router.message(Command("set_role"), RoleRequired(UserRole.SUPERADMIN), UserArgs())
 @with_repository(TelegramUsersRepository)
 async def cmd_set_role(
     message: Message,
-    role: UserRole,
     telegram_admin: TelegramAdmin,
     user_context: UserContext,
     repo: TelegramUsersRepository,
@@ -256,15 +236,10 @@ async def cmd_set_role(
             await message.answer("⚠️ Ошибка при смене роли пользователя. Подробности в логах.")
 
 
-# =========================
-# /users / /users all
-# =========================
-
 @router.message(Command("users"), RoleRequired(UserRole.ADMIN))
 @with_repository(TelegramUsersRepository)
 async def cmd_list_users(
     message: Message,
-    role: UserRole,
     repo: TelegramUsersRepository,
 ) -> None:
     async with log_context(telegram_id=message.from_user.id):

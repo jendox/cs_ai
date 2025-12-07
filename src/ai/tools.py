@@ -1,7 +1,7 @@
 from typing import Any
 
 from src.ai.amazon_mcp_client import AmazonMCPHttpClient
-from src.ai.context import llm_call_ctx
+from src.ai.context import get_current_brand
 
 
 async def get_order(order_id: str) -> dict[str, Any]:
@@ -489,7 +489,7 @@ async def get_product_by_text(
           context, or
         * ask the user for clarification if you cannot safely choose.
     """
-    brand = llm_call_ctx.get().brand
+    brand = get_current_brand(caller="get_product_by_text")
     client = AmazonMCPHttpClient.get_initialized_instance()
     return await client.get_product_by_text(query, brand.value, limit)
 
@@ -620,7 +620,7 @@ async def get_product_by_asin(
     - If you do NOT have an ASIN but only free text, use `get_product_by_text`
       instead.
     """
-    brand = llm_call_ctx.get().brand
+    brand = get_current_brand(caller="get_product_by_asin")
     client = AmazonMCPHttpClient.get_initialized_instance()
     return await client.get_product_by_asin(asin, brand.value, limit)
 

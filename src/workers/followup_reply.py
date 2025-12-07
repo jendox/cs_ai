@@ -9,7 +9,8 @@ from pydantic import ValidationError
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
 from src.db import session_local
-from src.db.repositories import OurPostsRepository, TicketNotFound, TicketsRepository
+from src.db.models import PostChannel
+from src.db.repositories import OurPostsRepository, TicketNotFound, TicketsRepository, ZendeskRuntimeSettingsRepository
 from src.jobs.models import JobType, UserReplyMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -66,10 +67,11 @@ class FollowUpReplyWorker(Service):
 
         ticket_id = message.ticket_id
         iteration_id = uuid.uuid4().hex[:8]
-        async with log_context(ticket_id, self.brand, iteration_id):
+        async with (log_context(ticket_id, self.brand, iteration_id)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
+                zendesk_repo = ZendeskRuntimeSettingsRepository(session)
 
                 async with session.begin():
                     try:
@@ -84,12 +86,14 @@ class FollowUpReplyWorker(Service):
                     reply = await self._generate_followup_reply(ticket_id)
                     if not reply:
                         return False
-                    channel = "private" if self._zendesk_client.review_mode else "public"
 
-                saved = await self._save_reply(our_posts_repo, reply, ticket_id, channel)
-                if not saved:
-                    return True
-                return await self._post_comment(ticket_id, reply)
+                    channel = await zendesk_repo.get_channel()
+                    saved = await self._save_reply(our_posts_repo, reply, ticket_id, channel)
+                    if not saved:
+                        return True
+
+                    is_public = channel == PostChannel.PUBLIC
+                    return await self._post_comment(ticket_id, reply, public=is_public)
 
     def _parse_message(self, payload: dict) -> UserReplyMessage | None:
         try:
@@ -139,7 +143,7 @@ class FollowUpReplyWorker(Service):
         our_post_repo: OurPostsRepository,
         body: str,
         ticket_id: int,
-        channel: str,
+        channel: PostChannel,
     ) -> bool:
         body_hash = hashlib.md5(body.encode()).hexdigest()
         recorded = await our_post_repo.record_our_post(
@@ -152,9 +156,15 @@ class FollowUpReplyWorker(Service):
         self.logger.info("our_post.reply.saved", extra={"ticket_id": ticket_id})
         return True
 
-    async def _post_comment(self, ticket_id: int, comment: str) -> bool:
+    async def _post_comment(
+        self,
+        ticket_id: int,
+        comment: str,
+        *,
+        public: bool,
+    ) -> bool:
         try:
-            await self._zendesk_client.add_comment(ticket_id, comment)
+            await self._zendesk_client.add_comment(ticket_id, comment, public=public)
             self.logger.info("comment.posted", extra={"ticket_id": ticket_id})
             return True
         except httpx.HTTPError as error:

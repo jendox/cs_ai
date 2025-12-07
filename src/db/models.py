@@ -89,6 +89,14 @@ class Event(Base):
     )
 
 
+class PostChannel(StrEnum):
+    INTERNAL = "internal"
+    PUBLIC = "public"
+
+
+post_channel_enum = ENUM(PostChannel, name="post_channel_enum")
+
+
 class OurPost(Base):
     __tablename__ = "our_posts"
 
@@ -103,7 +111,7 @@ class OurPost(Base):
     )
     body_hash: Mapped[str] = mapped_column(String(32), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    channel: Mapped[str | None] = mapped_column(String)
+    channel: Mapped[PostChannel] = mapped_column(post_channel_enum, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     __table_args__ = (
@@ -214,8 +222,6 @@ class LLMPrompt(Base):
     comment: Mapped[str] = mapped_column(Text, nullable=True)
 
 
-# ========== LLM ==========
-
 class MerchantListing(Base):
     __tablename__ = "merchant_listings"
 
@@ -303,6 +309,23 @@ class TelegramUser(Base):
         nullable=False,
         default=datetime_utils.utcnow(),
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=datetime_utils.utcnow(),
+    )
+
+
+# ========== ZENDESK ==========
+
+class ZendeskRuntimeSettings(Base):
+    __tablename__ = "zendesk_runtime_settings"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True, default="default")
+    review_channel: Mapped[PostChannel] = mapped_column(
+        post_channel_enum, nullable=False, default=PostChannel.INTERNAL,
+    )
+    updated_by: Mapped[str] = mapped_column(String(32), nullable=True, default="default")
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(),
         nullable=False,

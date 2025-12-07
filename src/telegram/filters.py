@@ -23,9 +23,16 @@ class RoleRequired(Filter):
     def __init__(self, required: UserRole | None = None):
         self.required = required
 
-    async def __call__(self, message: Message, role: UserRole | None = None, **kwargs) -> bool:
+    async def __call__(
+        self,
+        event: Any,
+        role: UserRole | None = None,
+        **kwargs,
+    ) -> bool:
         if self.required is None:
             return True
+        if role is None:
+            return False
         return role.level >= self.required.level
 
 

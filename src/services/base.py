@@ -9,7 +9,7 @@ __all__ = (
 
 
 class Service(ABC):
-    def __init__(self, name: str, brand: Brand) -> None:
+    def __init__(self, name: str, brand: Brand | str) -> None:
         self.name = name
         self.brand = brand
         self.logger = logging.getLogger(name)

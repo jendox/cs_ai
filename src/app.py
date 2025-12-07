@@ -1,4 +1,5 @@
 import logging.config
+from typing import Any
 
 import anyio
 
@@ -19,8 +20,7 @@ logger = logging.getLogger("cs")
 
 
 async def app():
-    brand = Brand.SUPERSELF
-    logger.info("app.up", extra={"brand": brand.value})
+    logger.info("app.up")
     try:
         settings = config.app_settings.get()
         amqp_url = settings.rabbitmq.amqp_url
@@ -37,14 +37,17 @@ async def app():
                 prompt_storage=LLMPromptStorage(),
                 amazon_mcp_client=amazon_mcp_client,
             )
-            tasks = [
-                Poller(zendesk_client, amqp_url, brand),
-                InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand),
-                FollowUpReplyWorker(zendesk_client, amqp_url, llm_context, brand),
-                # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
-                TicketClosedWorker(zendesk_client, amqp_url, brand),
-                TelegramAdmin(settings.telegram, brand),
-            ]
+
+            tasks: list[Any] = []
+            for brand in Brand.supported():
+                tasks += [
+                    Poller(zendesk_client, amqp_url, brand),
+                    InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand),
+                    FollowUpReplyWorker(zendesk_client, amqp_url, llm_context, brand),
+                    # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
+                    TicketClosedWorker(zendesk_client, amqp_url, brand),
+                ]
+            tasks.append(TelegramAdmin(settings.telegram, llm_context))
             # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
             # дальше нужно запускать периодически через админку, т.к. данные меняются редко
             # await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
@@ -58,4 +61,4 @@ async def app():
     except Exception:
         logger.error("app.fatal", exc_info=True)
     finally:
-        logger.info("app.shutdown", extra={"brand": brand.value})
+        logger.info("app.shutdown")

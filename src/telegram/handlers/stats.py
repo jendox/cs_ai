@@ -5,10 +5,10 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from src.db import session_local
 from src.db.models import UserRole
 from src.db.repositories import TicketsRepository
 from src.libs.zendesk_client.models import Brand
+from src.telegram.decorators import with_repository
 from src.telegram.filters import RoleRequired
 
 router = Router(name=__name__)
@@ -36,7 +36,9 @@ def _format_datetime(dt: datetime | None) -> str:
     return dt.strftime("%d-%m-%Y %H:%M")
 
 
-def _get_limit(text: str) -> int | None:
+def _get_limit(text: str | None) -> int | None:
+    if text is None:
+        return None
     try:
         return int(text.rsplit(sep=" ", maxsplit=1)[-1].strip())
     except ValueError:
@@ -44,13 +46,16 @@ def _get_limit(text: str) -> int | None:
 
 
 @router.message(Command("stats"), RoleRequired(UserRole.USER))
-async def cmd_stats(message: Message, role: UserRole):
-    async with session_local() as session:
-        repo = TicketsRepository(session)
-        tickets = await repo.get_observing_tickets(_get_limit(message.text))
+@with_repository(TicketsRepository)
+async def cmd_stats(
+    message: Message,
+    repo: TicketsRepository,
+) -> None:
+    tickets = await repo.get_observing_tickets(_get_limit(message.text))
 
     if not tickets:
-        return await message.answer("✅ There are no tickets with <code>observing=True</code> yet.")
+        await message.answer("✅ Ещё нет тикетов с <code>observing=True</code>.")
+        return
 
     total = len(tickets)
 
@@ -58,7 +63,7 @@ async def cmd_stats(message: Message, role: UserRole):
     for ticket in tickets:
         per_brand_status[ticket.brand_id][ticket.status] += 1
 
-    lines = ["<b>📊 Observing tickets</b>", f"Total: <b>{total}</b>\n", "🧾 By brands & statuses:"]
+    lines = ["<b>📊 Наблюдаемые тикеты</b>", f"Всего: <b>{total}</b>\n", "🧾 По брэндам и статусам:"]
     for brand_id, status_counts in per_brand_status.items():
         total_brand = sum(status_counts.values())
         brand_name = _format_brand(brand_id)
@@ -84,9 +89,9 @@ async def cmd_stats(message: Message, role: UserRole):
 
     table_text = "\n".join(fmt_row(r) for r in rows)
     lines.append("")
-    lines.append(f"<b>Last {total} tickets with observing=True:</b>")
+    lines.append(f"<b>Последние {total} тикетов с <code>observing=True</code>:</b>")
     lines.append("<pre>")
     lines.append(table_text)
     lines.append("</pre>")
 
-    return await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines))

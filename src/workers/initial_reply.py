@@ -11,7 +11,8 @@ from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
 from src.ai.ticket_classifier import LLMTicketClassifier
 from src.db import session_local
-from src.db.repositories import OurPostsRepository, TicketsRepository
+from src.db.models import PostChannel
+from src.db.repositories import OurPostsRepository, TicketsRepository, ZendeskRuntimeSettingsRepository
 from src.jobs.models import InitialReplyMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -70,25 +71,27 @@ class InitialReplyWorker(Service):
 
         ticket = message.ticket
         iteration_id = uuid.uuid4().hex[:8]
-        async with log_context(ticket.id, self.brand, iteration_id):
+        async with (log_context(ticket.id, self.brand, iteration_id)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
+                zendesk_repo = ZendeskRuntimeSettingsRepository(session)
 
                 async with session.begin():
-                    # Filter ticket
                     if await self._filter_as_service(session, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
-                    # Initial reply generation
+
                     reply = await self._generate_initial_reply(ticket)
                     if not reply:
                         return False
-                    # Отправка ответа в Zendesk + идемпотентность в БД
-                    channel = "private" if self._zendesk_client.review_mode else "public"
+
+                    channel = await zendesk_repo.get_channel()
                     saved = await self._save_reply(our_posts_repo, reply, ticket.id, channel)
-                if not saved:
-                    return True
-                return await self._post_comment(ticket.id, reply)
+                    if not saved:
+                        return True
+
+                    is_public = channel == PostChannel.PUBLIC
+                    return await self._post_comment(ticket.id, reply, public=is_public)
 
     def _parse_message(self, payload: dict) -> InitialReplyMessage | None:
         try:
@@ -166,7 +169,7 @@ class InitialReplyWorker(Service):
         our_posts_repo: OurPostsRepository,
         body: str,
         ticket_id: int,
-        channel: str,
+        channel: PostChannel,
     ) -> bool:
         body_hash = hashlib.md5(body.encode()).hexdigest()
         recorded = await our_posts_repo.record_our_post(
@@ -179,9 +182,15 @@ class InitialReplyWorker(Service):
         self.logger.info("our_post.reply.saved", extra={"ticket_id": ticket_id})
         return True
 
-    async def _post_comment(self, ticket_id: int, comment: str) -> bool:
+    async def _post_comment(
+        self,
+        ticket_id: int,
+        comment: str,
+        *,
+        public: bool,
+    ) -> bool:
         try:
-            await self._zendesk_client.add_comment(ticket_id, comment)
+            await self._zendesk_client.add_comment(ticket_id, comment, public=public)
             self.logger.info("comment.posted", extra={"ticket_id": ticket_id})
             return True
         except httpx.HTTPError as error:
