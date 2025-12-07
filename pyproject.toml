@@ -2,7 +2,7 @@
 name = "cs"
 version = "0.1.0"
 description = "AI CS assitant"
-requires-python = ">=3.13,<3.14"
+requires-python = "==3.13.*"
 dependencies = [
     "aio-pika>=9.5.7",
     "aiogram>=3.22.0",

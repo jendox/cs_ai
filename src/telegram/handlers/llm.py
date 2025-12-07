@@ -166,27 +166,48 @@ def _enabled_normalized_value(value: str) -> bool:
     raise ValueError()
 
 
+def _parse_float_param(key: str, value: str) -> tuple[float | None, str | None]:
+    try:
+        return float(value), None
+    except ValueError:
+        return None, f"Значение для <code>{key}</code> должно быть числом (float)."
+
+
+def _parse_int_param(key: str, value: str) -> tuple[int | None, str | None]:
+    try:
+        return int(value), None
+    except ValueError:
+        return None, "Значение для <code>max_tokens</code> должно быть целым числом."
+
+
+def _parse_enabled_param(key: str, value: str) -> tuple[bool | None, str | None]:
+    try:
+        return _enabled_normalized_value(value), None
+    except ValueError:
+        return None, "Значение для <code>enabled</code> должно быть true/false (или 1/0, yes/no)."
+
+
+_CLASSIFICATION_PARAM_PARSERS = {
+    "temperature": _parse_float_param,
+    "threshold": _parse_float_param,
+    "max_tokens": _parse_int_param,
+    "enabled": _parse_enabled_param,
+}
+
+
 def _update_classification_settings(params: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     updated_settings: dict[str, Any] = {}
 
     for key, value in params.items():
-        if key in {"temperature", "threshold"}:
-            try:
-                updated_settings[key] = float(value)
-            except ValueError:
-                return None, f"Значение для <code>{key}</code> должно быть числом (float)."
-        elif key == "max_tokens":
-            try:
-                updated_settings[key] = int(value)
-            except ValueError:
-                return None, "Значение для <code>max_tokens</code> должно быть целым числом."
-        elif key == "enabled":
-            try:
-                updated_settings[key] = _enabled_normalized_value(value)
-            except ValueError:
-                return None, "Значение для <code>enabled</code> должно быть true/false (или 1/0, yes/no)."
-        else:
+        parser = _CLASSIFICATION_PARAM_PARSERS.get(key)
+        if parser is None:
             return None, f"Неизвестный параметр: <code>{key}</code>"
+
+        parsed_value, error = parser(key, value)
+        if error is not None:
+            return None, error
+
+        updated_settings[key] = parsed_value
 
     return updated_settings, None
 
