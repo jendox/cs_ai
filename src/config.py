@@ -12,7 +12,6 @@ class ZendeskSettings(BaseModel):
     email: EmailStr
     token: SecretStr
     subdomain: str
-    review_mode: bool = True
 
 
 class RabbitMQSettings(BaseModel):

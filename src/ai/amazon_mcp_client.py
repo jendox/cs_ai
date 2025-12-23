@@ -293,8 +293,8 @@ class AmazonMCPHttpClient:
             self.logger.debug("get_products_by_order_id.not_found", extra={"order_id": order_id})
             return {"status": "not_found", "variants": []}
 
-        items = full_order["items"]
-        marketplace_id = full_order["order"]["marketplace_id"]
+        items = full_order["Items"]
+        marketplace_id = full_order["Order"]["marketplace_id"]
 
         products: list[dict[str, Any]] = []
         for item in items:

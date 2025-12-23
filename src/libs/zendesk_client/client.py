@@ -47,7 +47,6 @@ class ZendeskClient:
     def __init__(self, http_client: httpx.AsyncClient, settings: ZendeskSettings) -> None:
         http_client.auth = (f"{settings.email}/token", settings.token.get_secret_value())
         self._http_client = http_client
-        self.review_mode = settings.review_mode
         self.logger = logging.getLogger("zendesk_client")
 
     async def get_ticket(self, ticket_id: int) -> Ticket:

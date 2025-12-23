@@ -44,7 +44,7 @@ class FollowUpReplyWorker(Service):
         llm_context: LLMContext,
         brand: Brand,
     ) -> None:
-        super().__init__(name="user_reply", brand=brand)
+        super().__init__(name="followup_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._llm_context = llm_context
         self._reply_generator = LLMReplyGenerator(llm_context)

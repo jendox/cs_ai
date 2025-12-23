@@ -1,5 +1,3 @@
-import logging
-
 import anyio
 
 from src.libs.zendesk_client.models import Brand
@@ -8,8 +6,6 @@ from src.services.base import Service
 __all__ = (
     "supervise",
 )
-
-logger = logging.getLogger("services.supervisor")
 
 
 async def supervise(service: Service, *, restart_delay: float = 5.0) -> None:
