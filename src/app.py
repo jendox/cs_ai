@@ -51,7 +51,8 @@ async def app():
             tasks.append(TelegramAdmin(settings.telegram, llm_context))
             # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
             # дальше нужно запускать периодически через админку, т.к. данные меняются редко
-            await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
+            if not settings.app_debug:
+                await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
 
             async with anyio.create_task_group() as tg:
                 for task in tasks:

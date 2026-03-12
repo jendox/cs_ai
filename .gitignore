@@ -16,3 +16,4 @@ actions_gold.json
 test.py
 .env.dev
 .env.prod
+upgrade_plan.txt
