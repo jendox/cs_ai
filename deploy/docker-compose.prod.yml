@@ -1,0 +1,79 @@
+name: cs-prod
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_USER: ${POSTGRES__USER:-cs}
+      POSTGRES_PASSWORD: ${POSTGRES__PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES__DB:-cs}
+    volumes:
+      - pg_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES__USER:-cs} -d ${POSTGRES__DB:-cs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ__USER:-cs}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ__PASSWORD:-change_me}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit heartbeat 20"
+    volumes:
+      - rabbitmq_data_prod:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  amazon-mcp:
+    image: ${MCP_IMAGE:-yourdockerhub/amazon-mcp}:${MCP_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      PYTHONPATH: /app
+    command: ["uv", "run", "fastmcp", "run", "src/server.py", "--transport", "http", "--host", "0.0.0.0", "--port", "9002", "--path", "/mcp"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 9002), 3); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: ${CS_IMAGE:-yourdockerhub/cs-app}:${CS_TAG:-latest}
+    env_file:
+      - .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "no"
+    profiles: ["ops"]
+
+  app:
+    image: ${CS_IMAGE:-yourdockerhub/cs-app}:${CS_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      amazon-mcp:
+        condition: service_started
+    command: ["uv", "run", "python", "run.py"]
+
+volumes:
+  pg_data_prod:
+  rabbitmq_data_prod:

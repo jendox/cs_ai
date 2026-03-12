@@ -1,0 +1,77 @@
+name: cs-dev
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    environment:
+      POSTGRES_USER: ${POSTGRES__USER:-cs}
+      POSTGRES_PASSWORD: ${POSTGRES__PASSWORD:-cs_dev_password}
+      POSTGRES_DB: ${POSTGRES__DB:-cs}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES__USER:-cs} -d ${POSTGRES__DB:-cs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ__USER:-cs}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ__PASSWORD:-cs_dev_password}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit heartbeat 20"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data_dev:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  amazon-mcp:
+    image: amazon-mcp:dev
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "9002:9002"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 9002), 3); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    image: cs-app:dev
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      amazon-mcp:
+        condition: service_started
+    command: ["uv", "run", "python", "run.py"]
+
+volumes:
+  pg_data_dev:
+  rabbitmq_data_dev:

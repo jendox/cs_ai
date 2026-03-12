@@ -116,6 +116,7 @@ class MCPSettings(BaseModel):
 
 
 class AppSettings(BaseSettings):
+    app_debug: bool = False
     zendesk: ZendeskSettings
     rabbitmq: RabbitMQSettings
     amazon: AmazonSettings

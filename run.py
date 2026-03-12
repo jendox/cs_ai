@@ -16,6 +16,7 @@ if __name__ == "__main__":
             chat_id=app_settings.telegram.chat_id,
             level=app_settings.telegram.min_level,
         )
-    log_config = build_logging_config(LogEnvironment.DEV, json_logs=True, telegram_handler=telegram_handler)
+    log_env = LogEnvironment.DEV if app_settings.app_debug else LogEnvironment.PROD
+    log_config = build_logging_config(env=log_env, json_logs=True, telegram_handler=telegram_handler)
     logging.config.dictConfig(log_config)
     anyio.run(src.app.app)
