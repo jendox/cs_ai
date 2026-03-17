@@ -48,11 +48,12 @@ async def app():
                     # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
                     TicketClosedWorker(zendesk_client, amqp_url, brand),
                 ]
+                # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
+                # дальше нужно запускать периодически через админку, т.к. данные меняются редко
+                if settings.init_ref_update:
+                    await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
+
             tasks.append(TelegramAdmin(settings.telegram, llm_context))
-            # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
-            # дальше нужно запускать периодически через админку, т.к. данные меняются редко
-            if not settings.app_debug:
-                await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
 
             async with anyio.create_task_group() as tg:
                 for task in tasks:
