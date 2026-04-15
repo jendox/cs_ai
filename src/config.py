@@ -2,7 +2,7 @@ from contextvars import ContextVar
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, EmailStr, SecretStr
+from pydantic import BaseModel, EmailStr, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 app_settings: ContextVar["AppSettings"] = ContextVar("app_settings")
@@ -120,21 +120,21 @@ class WebAdminSettings(BaseModel):
     port: int = 8080
     session_secret: SecretStr
     bootstrap_username: str
-    bootstrap_password: str
-    cookie_secure: bool
+    bootstrap_password: SecretStr
+    cookie_secure: bool = False
 
 
 class AppSettings(BaseSettings):
     app_debug: bool = False
     init_ref_update: bool = False
-    zendesk: ZendeskSettings = 
-    rabbitmq: RabbitMQSettings
-    amazon: AmazonSettings
-    telegram: TelegramSettings
-    postgres: PostgresSettings
-    llm: LLMSettings
-    mcp: MCPSettings
-    web: WebAdminSettings
+    zendesk: ZendeskSettings = Field(default_factory=ZendeskSettings)
+    rabbitmq: RabbitMQSettings = Field(default_factory=RabbitMQSettings)
+    amazon: AmazonSettings = Field(default_factory=AmazonSettings)
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    postgres: PostgresSettings = Field(default_factory=PostgresSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
+    web: WebAdminSettings = Field(default_factory=WebAdminSettings)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,3 +1,4 @@
+from .admin_users import AdminUserNotFound, AdminUsersRepository
 from .checkpoints import CheckpointsRepository
 from .events import EventsRepository
 from .filter_rule import TicketsFilterRuleRepository

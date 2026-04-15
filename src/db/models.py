@@ -270,7 +270,7 @@ class MerchantListing(Base):
     )
 
 
-# ========== TELEGRAM ==========
+# ========== ADMIN ==========
 
 
 class UserRole(StrEnum):
@@ -313,6 +313,31 @@ class TelegramUser(Base):
         UTCDateTime(),
         nullable=False,
         default=datetime_utils.utcnow(),
+    )
+
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    role: Mapped[UserRole] = mapped_column(user_role_enum, nullable=False, default=UserRole.USER)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=datetime_utils.utcnow,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=datetime_utils.utcnow,
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(),
+        nullable=True,
     )
 
 
