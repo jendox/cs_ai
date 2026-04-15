@@ -16,6 +16,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button button-primary" type="submit">Refresh from Zendesk</button>
       </form>
+      <a class="button button-secondary" href="{{ zendesk_ticket_url }}" target="_blank" rel="noreferrer">Open in Zendesk</a>
       <a class="button button-secondary" href="/admin/tickets">Back to Tickets</a>
     </div>
   </div>
@@ -49,6 +50,15 @@
       <span class="meta-label">Reply Attempts</span>
       <strong>{{ attempts|length }}</strong>
     </div>
+    <div>
+      <span class="meta-label">Last Bot Reply</span>
+      {% if last_successful_attempt %}
+        <strong>{{ last_successful_attempt.posted_at.strftime("%Y-%m-%d %H:%M:%S") if last_successful_attempt.posted_at else last_successful_attempt.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</strong>
+        <small>{{ last_successful_attempt.job_type }} · {{ last_successful_attempt.channel.value }}</small>
+      {% else %}
+        <strong>-</strong>
+      {% endif %}
+    </div>
   </div>
 </section>
 
@@ -66,9 +76,17 @@
     <div class="notice success">Local comments are empty. Showing live Zendesk comments as fallback.</div>
   {% endif %}
 
-  <div class="timeline">
+  <div class="timeline-filters" data-timeline-filters>
+    <button class="timeline-filter-button is-active" type="button" data-timeline-filter="all">All</button>
+    <button class="timeline-filter-button" type="button" data-timeline-filter="customer">Customer</button>
+    <button class="timeline-filter-button" type="button" data-timeline-filter="agent">Agent</button>
+    <button class="timeline-filter-button" type="button" data-timeline-filter="bot">Bot</button>
+    <button class="timeline-filter-button" type="button" data-timeline-filter="errors">Errors</button>
+  </div>
+
+  <div class="timeline" data-ticket-timeline>
     {% for item in timeline_items %}
-      <article class="timeline-item timeline-{{ item.kind }} timeline-actor-{{ item.actor_class }} {{ item.badge_class }}">
+      <article class="timeline-item timeline-{{ item.kind }} timeline-actor-{{ item.actor_class }} {{ item.badge_class }}" data-actor="{{ item.actor_class }}" data-has-error="{{ 'true' if item.error or item.badge_class == 'failed' else 'false' }}">
         <div class="timeline-heading">
           <div class="timeline-actor" aria-hidden="true">{{ item.actor_label[:1] }}</div>
           <div class="timeline-header-content">
@@ -87,7 +105,8 @@
         </div>
 
         {% if item.body %}
-          <div class="timeline-body">{{ item.body }}</div>
+          <button class="timeline-toggle" type="button" data-collapse-toggle>Collapse</button>
+          <div class="timeline-body" data-collapsible-body>{{ item.body }}</div>
         {% endif %}
 
         {% if item.error %}
@@ -99,6 +118,46 @@
     {% endfor %}
   </div>
 </section>
+
+<script>
+  (() => {
+    const timeline = document.querySelector("[data-ticket-timeline]");
+    if (!timeline) {
+      return;
+    }
+
+    const items = Array.from(timeline.querySelectorAll(".timeline-item"));
+    const buttons = Array.from(document.querySelectorAll("[data-timeline-filter]"));
+
+    const applyFilter = (filter) => {
+      items.forEach((item) => {
+        const matches = filter === "all"
+          || item.dataset.actor === filter
+          || (filter === "errors" && item.dataset.hasError === "true");
+        item.hidden = !matches;
+      });
+    };
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        buttons.forEach((item) => item.classList.remove("is-active"));
+        button.classList.add("is-active");
+        applyFilter(button.dataset.timelineFilter);
+      });
+    });
+
+    timeline.querySelectorAll("[data-collapse-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const body = button.parentElement.querySelector("[data-collapsible-body]");
+        if (!body) {
+          return;
+        }
+        const collapsed = body.classList.toggle("is-collapsed");
+        button.textContent = collapsed ? "Expand" : "Collapse";
+      });
+    });
+  })();
+</script>
 
 <section class="panel">
   <div class="section-heading">

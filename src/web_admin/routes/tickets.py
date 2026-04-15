@@ -136,6 +136,28 @@ def _tickets_url(
     return f"/admin/tickets?{urlencode(query)}"
 
 
+def _zendesk_ticket_url(ticket_id: int) -> str:
+    settings = config.app_settings.get()
+    subdomain = settings.zendesk.subdomain.strip()
+    return f"https://{subdomain}.zendesk.com/agent/tickets/{ticket_id}"
+
+
+def _last_successful_attempt(
+    attempts: list[TicketReplyAttemptEntity],
+) -> TicketReplyAttemptEntity | None:
+    posted_attempts = [
+        attempt
+        for attempt in attempts
+        if attempt.status == ReplyAttemptStatus.POSTED
+    ]
+    if not posted_attempts:
+        return None
+    return max(
+        posted_attempts,
+        key=lambda attempt: attempt.posted_at or attempt.created_at,
+    )
+
+
 def _comment_created_at(comment: Comment) -> datetime:
     return comment.created_at or datetime.min.replace(tzinfo=UTC)
 
@@ -427,6 +449,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0917
         fallback_comments=fallback_comments,
         attempts=attempts,
     )
+    last_successful_attempt = _last_successful_attempt(attempts)
 
     csrf = session_manager.create_csrf_token()
     response = templates.TemplateResponse(
@@ -444,6 +467,8 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0917
             "comments_source": comments_source,
             "timeline_items": timeline_items,
             "comments_error": comments_error,
+            "last_successful_attempt": last_successful_attempt,
+            "zendesk_ticket_url": _zendesk_ticket_url(ticket_id),
             "flash": _ticket_flash(saved=saved, error=error, count=count),
         },
     )
