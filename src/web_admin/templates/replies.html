@@ -44,6 +44,39 @@
     </div>
   </div>
 
+  {% if summary.job_summaries %}
+    <div class="summary-breakdown table-wrap">
+      <table class="data-table breakdown-table">
+        <thead>
+          <tr>
+            <th>Job Type</th>
+            <th>Total</th>
+            <th>Generated</th>
+            <th>Posted</th>
+            <th>Failed</th>
+            <th>Empty</th>
+            <th>Duplicates</th>
+            <th>Success</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in summary.job_summaries %}
+            <tr>
+              <td><strong>{{ item.job_type }}</strong></td>
+              <td>{{ item.total }}</td>
+              <td>{{ item.generated_count }}</td>
+              <td>{{ item.posted_count }}</td>
+              <td>{{ item.failed_count }}</td>
+              <td>{{ item.empty_count }}</td>
+              <td>{{ item.duplicate_count }}</td>
+              <td>{{ "%.1f"|format(item.success_rate) }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   <form class="form filters-form" method="get" action="/admin/replies" data-auto-filter-form>
     <label class="field">
       <span>Ticket ID</span>

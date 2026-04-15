@@ -952,6 +952,27 @@ input[type="number"]::-webkit-inner-spin-button {
   line-height: 1.2;
 }
 
+.summary-breakdown {
+  margin: -4px 0 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.breakdown-table {
+  min-width: 760px;
+}
+
+.breakdown-table th,
+.breakdown-table td {
+  padding: 10px 12px;
+}
+
+.breakdown-table td:not(:first-child),
+.breakdown-table th:not(:first-child) {
+  text-align: right;
+}
+
 .timeline {
   display: grid;
   gap: 14px;

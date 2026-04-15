@@ -53,10 +53,47 @@ class ReplyAttemptListResult:
 
 
 @dataclass(frozen=True)
+class ReplyAttemptJobSummary:
+    job_type: str
+    total: int
+    status_counts: dict[ReplyAttemptStatus, int]
+
+    def status_count(self, status: ReplyAttemptStatus) -> int:
+        return self.status_counts.get(status, 0)
+
+    @property
+    def generated_count(self) -> int:
+        return self.status_count(ReplyAttemptStatus.GENERATED)
+
+    @property
+    def posted_count(self) -> int:
+        return self.status_count(ReplyAttemptStatus.POSTED)
+
+    @property
+    def failed_count(self) -> int:
+        return self.status_count(ReplyAttemptStatus.FAILED)
+
+    @property
+    def duplicate_count(self) -> int:
+        return self.status_count(ReplyAttemptStatus.SKIPPED_DUPLICATE)
+
+    @property
+    def empty_count(self) -> int:
+        return self.status_count(ReplyAttemptStatus.EMPTY_REPLY)
+
+    @property
+    def success_rate(self) -> float:
+        if self.total == 0:
+            return 0.0
+        return self.posted_count / self.total * 100
+
+
+@dataclass(frozen=True)
 class ReplyAttemptSummary:
     total: int
     status_counts: dict[ReplyAttemptStatus, int]
     job_type_counts: dict[str, int]
+    job_summaries: list[ReplyAttemptJobSummary]
 
     def status_count(self, status: ReplyAttemptStatus) -> int:
         return self.status_counts.get(status, 0)
@@ -254,17 +291,39 @@ class TicketReplyAttemptsRepository(BaseRepository):
             select(TicketReplyAttemptEntity.job_type, func.count())
             .group_by(TicketReplyAttemptEntity.job_type)
         )
+        job_status_stmt = (
+            select(
+                TicketReplyAttemptEntity.job_type,
+                TicketReplyAttemptEntity.status,
+                func.count(),
+            )
+            .group_by(TicketReplyAttemptEntity.job_type, TicketReplyAttemptEntity.status)
+        )
         if conditions:
             total_stmt = total_stmt.where(*conditions)
             status_stmt = status_stmt.where(*conditions)
             job_type_stmt = job_type_stmt.where(*conditions)
+            job_status_stmt = job_status_stmt.where(*conditions)
 
         total = await self._session.scalar(total_stmt)
         status_rows = await self._session.execute(status_stmt)
         job_type_rows = await self._session.execute(job_type_stmt)
+        job_status_rows = await self._session.execute(job_status_stmt)
+        job_type_counts = dict(job_type_rows.all())
+        job_status_counts: dict[str, dict[ReplyAttemptStatus, int]] = {}
+        for job_type, status, count in job_status_rows.all():
+            job_status_counts.setdefault(job_type, {})[status] = count
 
         return ReplyAttemptSummary(
             total=total or 0,
             status_counts=dict(status_rows.all()),
-            job_type_counts=dict(job_type_rows.all()),
+            job_type_counts=job_type_counts,
+            job_summaries=[
+                ReplyAttemptJobSummary(
+                    job_type=job_type,
+                    total=count,
+                    status_counts=job_status_counts.get(job_type, {}),
+                )
+                for job_type, count in sorted(job_type_counts.items())
+            ],
         )

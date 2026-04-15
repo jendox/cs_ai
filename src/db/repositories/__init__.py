@@ -7,6 +7,7 @@ from .our_posts import OurPostsRepository
 from .reply_attempts import (
     ReplyAttemptCreate,
     ReplyAttemptFilters,
+    ReplyAttemptJobSummary,
     ReplyAttemptListResult,
     ReplyAttemptSummary,
     TicketReplyAttemptNotFound,
@@ -25,6 +26,7 @@ __all__ = [
     "LocksRepository",
     "OurPostsRepository",
     "ReplyAttemptCreate",
+    "ReplyAttemptJobSummary",
     "TicketReplyAttemptNotFound",
     "TicketReplyAttemptsRepository",
     "ReplyAttemptFilters",
