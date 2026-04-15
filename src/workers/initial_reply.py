@@ -1,6 +1,7 @@
 import hashlib
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from textwrap import dedent
 
 import httpx
@@ -11,8 +12,14 @@ from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
 from src.ai.ticket_classifier import LLMTicketClassifier
 from src.db import session_local
-from src.db.models import PostChannel
-from src.db.repositories import OurPostsRepository, TicketsRepository, ZendeskRuntimeSettingsRepository
+from src.db.models import LLMPromptKey, PostChannel
+from src.db.repositories import (
+    OurPostsRepository,
+    ReplyAttemptCreate,
+    TicketReplyAttemptsRepository,
+    TicketsRepository,
+    ZendeskRuntimeSettingsRepository,
+)
 from src.jobs.models import InitialReplyMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
@@ -37,6 +44,13 @@ async def log_context(ticket_id: int, brand: Brand, iteration_id: str):
             log_ctx.reset(token)
         except Exception:
             pass
+
+
+@dataclass(frozen=True)
+class PostCommentResult:
+    success: bool
+    error: str | None = None
+    zendesk_comment_id: int | None = None
 
 
 class InitialReplyWorker(Service):
@@ -75,23 +89,70 @@ class InitialReplyWorker(Service):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
+                reply_attempts_repo = TicketReplyAttemptsRepository(session)
                 zendesk_repo = ZendeskRuntimeSettingsRepository(session)
 
                 async with session.begin():
                     if await self._filter_as_service(session, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
 
+                    channel = await zendesk_repo.get_channel()
                     reply = await self._generate_initial_reply(ticket)
                     if not reply:
+                        empty_attempt = await reply_attempts_repo.create_empty_reply(
+                            ReplyAttemptCreate(
+                                ticket_id=ticket.id,
+                                brand_id=self.brand.value,
+                                job_type=JobType.INITIAL_REPLY.value,
+                                channel=channel,
+                                prompt_key=LLMPromptKey.INITIAL_REPLY.value,
+                                iteration_id=iteration_id,
+                            ),
+                        )
+                        self.logger.info("reply_attempt.empty", extra={"attempt_id": empty_attempt.id})
                         return False
 
-                    channel = await zendesk_repo.get_channel()
-                    saved = await self._save_reply(our_posts_repo, reply, ticket.id, channel)
+                    body_hash = self._reply_body_hash(reply)
+                    attempt = await reply_attempts_repo.create_generated(
+                        ReplyAttemptCreate(
+                            ticket_id=ticket.id,
+                            brand_id=self.brand.value,
+                            job_type=JobType.INITIAL_REPLY.value,
+                            channel=channel,
+                            body_hash=body_hash,
+                            body=reply,
+                            prompt_key=LLMPromptKey.INITIAL_REPLY.value,
+                            iteration_id=iteration_id,
+                        ),
+                    )
+                    self.logger.info("reply_attempt.generated", extra={"attempt_id": attempt.id})
+
+                    saved = await self._save_reply(our_posts_repo, reply, ticket.id, channel, body_hash=body_hash)
                     if not saved:
+                        await reply_attempts_repo.mark_skipped_duplicate(attempt.id)
+                        self.logger.info("reply_attempt.duplicate", extra={"attempt_id": attempt.id})
                         return True
 
-                    is_public = channel == PostChannel.PUBLIC
-                    return await self._post_comment(ticket.id, reply, public=is_public)
+                    post_result = await self._post_comment(ticket.id, reply, public=channel == PostChannel.PUBLIC)
+                    if post_result.success:
+                        await reply_attempts_repo.mark_posted(
+                            attempt.id,
+                            zendesk_comment_id=post_result.zendesk_comment_id,
+                        )
+                        self.logger.info(
+                            "reply_attempt.posted",
+                            extra={"attempt_id": attempt.id, "zendesk_comment_id": post_result.zendesk_comment_id},
+                        )
+                        return True
+
+                    error = post_result.error or "Zendesk comment post failed"
+                    await our_posts_repo.delete_our_post(ticket_id=ticket.id, body_hash=body_hash)
+                    await reply_attempts_repo.mark_failed(attempt.id, error=error)
+                    self.logger.warning(
+                        "reply_attempt.failed",
+                        extra={"attempt_id": attempt.id, "error": error},
+                    )
+                    return False
 
     def _parse_message(self, payload: dict) -> InitialReplyMessage | None:
         try:
@@ -142,10 +203,10 @@ class InitialReplyWorker(Service):
                 brand=self.brand,
             )
             if not reply:
-                self.logger.warning("ai.empty_body", extra={"ticket_id": ticket.id})
+                self.logger.warning("ai.empty_body")
             return reply
         except Exception as exc:
-            self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
+            self.logger.warning("ai.generate_failed", extra={"error": str(exc)})
             return ""
 
     @staticmethod
@@ -164,22 +225,27 @@ class InitialReplyWorker(Service):
             {body}
         """).strip()
 
+    @staticmethod
+    def _reply_body_hash(body: str) -> str:
+        return hashlib.md5(body.encode()).hexdigest()
+
     async def _save_reply(
         self,
         our_posts_repo: OurPostsRepository,
         body: str,
         ticket_id: int,
         channel: PostChannel,
+        *,
+        body_hash: str,
     ) -> bool:
-        body_hash = hashlib.md5(body.encode()).hexdigest()
         recorded = await our_posts_repo.record_our_post(
             ticket_id=ticket_id, body_hash=body_hash, body=body, channel=channel,
         )
         if not recorded:
             # такой ответ уже фиксировали — не дублируем
-            self.logger.info("our_post.duplicate_skip", extra={"ticket_id": ticket_id})
+            self.logger.info("our_post.duplicate_skip")
             return False
-        self.logger.info("our_post.reply.saved", extra={"ticket_id": ticket_id})
+        self.logger.info("our_post.reply.saved")
         return True
 
     async def _post_comment(
@@ -188,14 +254,16 @@ class InitialReplyWorker(Service):
         comment: str,
         *,
         public: bool,
-    ) -> bool:
+    ) -> PostCommentResult:
         try:
             await self._zendesk_client.add_comment(ticket_id, comment, public=public)
-            self.logger.info("comment.posted", extra={"ticket_id": ticket_id})
-            return True
+            self.logger.info("comment.posted")
+            return PostCommentResult(success=True)
         except httpx.HTTPError as error:
-            self.logger.warning("http_error", extra={"ticket_id": ticket_id, "error": str(error)})
-            return False
+            error_text = str(error)
+            self.logger.warning("http_error", extra={"error": error_text})
+            return PostCommentResult(success=False, error=error_text)
         except Exception as exc:
-            self.logger.error("post_failed", extra={"ticket_id": ticket_id, "error": str(exc)})
-            return False
+            error_text = str(exc)
+            self.logger.error("post_failed", extra={"error": error_text})
+            return PostCommentResult(success=False, error=error_text)

@@ -1,5 +1,6 @@
 import hashlib
 
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,3 +47,8 @@ class OurPostsRepository(BaseRepository):
         except DBAPIError as e:
             self.logger.error("our_post.insert.dbapi", extra={"error": str(e.orig)}, exc_info=True)
             raise
+
+    async def delete_our_post(self, *, ticket_id: int, body_hash: str) -> None:
+        post_key = hashlib.md5(f"{ticket_id}:{body_hash}".encode()).hexdigest()
+        stmt = delete(OurPostEntity).where(OurPostEntity.post_key == post_key)
+        await self._session.execute(stmt)
