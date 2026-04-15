@@ -73,6 +73,9 @@
           <th>Brand</th>
           <th>Status</th>
           <th>Observing</th>
+          <th>Events</th>
+          <th>Replies</th>
+          <th>Last Customer</th>
           <th>Updated</th>
           <th>Last Seen</th>
           <th>Timeline</th>
@@ -82,24 +85,30 @@
         {% for item in result.items %}
           <tr>
             <td>
-              <a class="table-link" href="/admin/replies/tickets/{{ item.ticket_id }}">
-                <strong>{{ item.ticket_id }}</strong>
+              <a class="table-link" href="/admin/replies/tickets/{{ item.ticket.ticket_id }}">
+                <strong>{{ item.ticket.ticket_id }}</strong>
               </a>
             </td>
-            <td>{{ item.brand_id }}</td>
+            <td>{{ item.ticket.brand_id }}</td>
             <td>
-              <span class="status-pill {{ item.status|lower }}">{{ item.status }}</span>
+              <span class="status-pill {{ item.ticket.status|lower }}">{{ item.ticket.status }}</span>
             </td>
-            <td>{{ "yes" if item.observing else "no" }}</td>
-            <td>{{ item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else "-" }}</td>
-            <td>{{ item.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_seen_at else "-" }}</td>
+            <td>{{ "yes" if item.ticket.observing else "no" }}</td>
+            <td>{{ item.event_count }}</td>
             <td>
-              <a class="button button-secondary table-button" href="/admin/replies/tickets/{{ item.ticket_id }}">Open</a>
+              <strong>{{ item.reply_attempt_count }}</strong>
+              <small>{{ item.posted_reply_count }} posted · {{ item.failed_reply_count }} failed</small>
+            </td>
+            <td>{{ item.last_customer_comment_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_customer_comment_at else "-" }}</td>
+            <td>{{ item.ticket.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.updated_at else "-" }}</td>
+            <td>{{ item.ticket.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.last_seen_at else "-" }}</td>
+            <td>
+              <a class="button button-secondary table-button" href="/admin/replies/tickets/{{ item.ticket.ticket_id }}">Open</a>
             </td>
           </tr>
         {% else %}
           <tr>
-            <td colspan="7">No tickets found.</td>
+            <td colspan="10">No tickets found.</td>
           </tr>
         {% endfor %}
       </tbody>

@@ -6,12 +6,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
-from src.db.models import Ticket as TicketEntity
+from src.db.models import (
+    Event as EventEntity,
+    ReplyAttemptStatus,
+    Ticket as TicketEntity,
+    TicketReplyAttempt as TicketReplyAttemptEntity,
+)
 from src.db.repositories.base import BaseRepository
 from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 
 __all__ = (
     "TicketFilters",
+    "TicketListItem",
     "TicketListResult",
     "TicketNotFound",
     "TicketsRepository",
@@ -31,8 +37,18 @@ class TicketFilters:
 
 
 @dataclass(frozen=True)
+class TicketListItem:
+    ticket: TicketEntity
+    event_count: int
+    reply_attempt_count: int
+    posted_reply_count: int
+    failed_reply_count: int
+    last_customer_comment_at: datetime | None
+
+
+@dataclass(frozen=True)
 class TicketListResult:
-    items: list[TicketEntity]
+    items: list[TicketListItem]
     total: int
     limit: int
     offset: int
@@ -139,10 +155,52 @@ class TicketsRepository(BaseRepository):
         limit = min(max(limit, 1), MAX_TICKETS_LIMIT)
         offset = max(offset, 0)
         conditions = self._ticket_filter_conditions(filters)
+        event_counts = (
+            select(
+                EventEntity.ticket_id,
+                func.count().label("event_count"),
+                func.max(
+                    case(
+                        (EventEntity.author_role == "user", EventEntity.created_at),
+                    ),
+                ).label("last_customer_comment_at"),
+            )
+            .group_by(EventEntity.ticket_id)
+            .subquery()
+        )
+        reply_counts = (
+            select(
+                TicketReplyAttemptEntity.ticket_id,
+                func.count().label("reply_attempt_count"),
+                func.sum(
+                    case(
+                        (TicketReplyAttemptEntity.status == ReplyAttemptStatus.POSTED, 1),
+                        else_=0,
+                    ),
+                ).label("posted_reply_count"),
+                func.sum(
+                    case(
+                        (TicketReplyAttemptEntity.status == ReplyAttemptStatus.FAILED, 1),
+                        else_=0,
+                    ),
+                ).label("failed_reply_count"),
+            )
+            .group_by(TicketReplyAttemptEntity.ticket_id)
+            .subquery()
+        )
 
         total_stmt = select(func.count()).select_from(TicketEntity)
         items_stmt = (
-            select(TicketEntity)
+            select(
+                TicketEntity,
+                func.coalesce(event_counts.c.event_count, 0),
+                func.coalesce(reply_counts.c.reply_attempt_count, 0),
+                func.coalesce(reply_counts.c.posted_reply_count, 0),
+                func.coalesce(reply_counts.c.failed_reply_count, 0),
+                event_counts.c.last_customer_comment_at,
+            )
+            .outerjoin(event_counts, event_counts.c.ticket_id == TicketEntity.ticket_id)
+            .outerjoin(reply_counts, reply_counts.c.ticket_id == TicketEntity.ticket_id)
             .order_by(desc(TicketEntity.updated_at))
             .limit(limit)
             .offset(offset)
@@ -152,7 +210,25 @@ class TicketsRepository(BaseRepository):
             items_stmt = items_stmt.where(*conditions)
 
         total = await self._session.scalar(total_stmt)
-        items = list(await self._session.scalars(items_stmt))
+        rows = await self._session.execute(items_stmt)
+        items = [
+            TicketListItem(
+                ticket=ticket,
+                event_count=event_count,
+                reply_attempt_count=reply_attempt_count,
+                posted_reply_count=posted_reply_count,
+                failed_reply_count=failed_reply_count,
+                last_customer_comment_at=last_customer_comment_at,
+            )
+            for (
+                ticket,
+                event_count,
+                reply_attempt_count,
+                posted_reply_count,
+                failed_reply_count,
+                last_customer_comment_at,
+            ) in rows.all()
+        ]
 
         return TicketListResult(
             items=items,
