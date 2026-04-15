@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}LLM Settings · CS Admin{% endblock %}
+{% block kicker %}LLM{% endblock %}
+{% block page_title %}Runtime Settings{% endblock %}
+
+{% block content %}
+{% set selected_provider = response.provider.value if response.provider else default_provider %}
+<div class="page-grid">
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Response Model</h2>
+        <p>Controls customer-facing reply generation.</p>
+      </div>
+    </div>
+
+    <form class="form" method="post" action="/admin/llm/response">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="field">
+        <span>Provider</span>
+        <select name="provider" data-model-provider>
+          <option value="">Default</option>
+          {% for provider, label in supported_providers.items() %}
+            <option value="{{ provider }}" {% if response.provider and response.provider.value == provider %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Model</span>
+        <select name="model" data-model-select data-current-model="{{ response.model or '' }}">
+          <option value="">Provider default</option>
+          {% for model in supported_models_by_provider.get(selected_provider, []) %}
+            <option value="{{ model }}" {% if response.model == model %}selected{% endif %}>
+              {{ model }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="form-row">
+        <label class="field">
+          <span>Temperature</span>
+          <input name="temperature" type="number" min="0" max="1" step="0.01" value="{{ response.temperature }}">
+        </label>
+
+        <label class="field">
+          <span>Top P</span>
+          <input name="top_p" type="number" min="0" max="1" step="0.01" value="{{ response.top_p }}">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Max Tokens</span>
+        <input name="max_tokens" type="number" min="1" step="1" value="{{ response.max_tokens }}">
+      </label>
+
+      <button class="button button-primary" type="submit">Save Response Settings</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Classification</h2>
+        <p>Controls service/spam filtering before first reply generation.</p>
+      </div>
+
+      {% if classification.enabled %}
+        <span class="status-pill internal">enabled</span>
+      {% else %}
+        <span class="status-pill public">disabled</span>
+      {% endif %}
+    </div>
+
+    <form class="form" method="post" action="/admin/llm/classification">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="radio-row">
+        <input type="radio" name="enabled" value="true" {% if classification.enabled %}checked{% endif %}>
+        <span>
+          <strong>Enabled</strong>
+          <small>Use LLM classification after rule-based ticket filtering.</small>
+        </span>
+      </label>
+
+      <label class="radio-row">
+        <input type="radio" name="enabled" value="false" {% if not classification.enabled %}checked{% endif %}>
+        <span>
+          <strong>Disabled</strong>
+          <small>Skip LLM classification and rely on rule-based filtering.</small>
+        </span>
+      </label>
+
+      <label class="field">
+        <span>Threshold</span>
+        <input name="threshold" type="number" min="0" max="1" step="0.01" value="{{ classification.threshold }}">
+      </label>
+
+      <div class="form-row">
+        <label class="field">
+          <span>Temperature</span>
+          <input name="temperature" type="number" min="0" max="1" step="0.01" value="{{ classification.temperature }}">
+        </label>
+
+        <label class="field">
+          <span>Top P</span>
+          <input name="top_p" type="number" min="0" max="1" step="0.01" value="{{ classification.top_p }}">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Max Tokens</span>
+        <input name="max_tokens" type="number" min="1" step="1" value="{{ classification.max_tokens }}">
+      </label>
+
+      <button class="button button-primary" type="submit">Save Classification Settings</button>
+    </form>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const providerSelect = document.querySelector("[data-model-provider]");
+    const modelSelect = document.querySelector("[data-model-select]");
+    const modelsByProvider = {{ supported_models_by_provider | tojson }};
+    const defaultProvider = {{ default_provider | tojson }};
+
+    if (!providerSelect || !modelSelect) {
+      return;
+    }
+
+    const renderModels = () => {
+      const currentModel = modelSelect.dataset.currentModel || modelSelect.value;
+      const provider = providerSelect.value || defaultProvider;
+      const models = modelsByProvider[provider] || [];
+
+      modelSelect.replaceChildren(new Option("Provider default", ""));
+      for (const model of models) {
+        modelSelect.add(new Option(model, model));
+      }
+
+      if (models.includes(currentModel)) {
+        modelSelect.value = currentModel;
+      }
+    };
+
+    providerSelect.addEventListener("change", () => {
+      modelSelect.dataset.currentModel = "";
+      renderModels();
+    });
+    renderModels();
+  })();
+</script>
+{% endblock %}
