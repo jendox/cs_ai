@@ -36,6 +36,10 @@ body {
 .sidebar {
   min-height: 100vh;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 32px;
   background: #101820;
   color: #fff;
 }
@@ -134,35 +138,42 @@ h2 {
 
 .user-menu {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid #2c3945;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
 }
 
 .user-chip {
-  min-height: 36px;
+  min-height: 40px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  min-width: 0;
 }
 
 .user-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 750;
   line-height: 1;
+  color: #fff;
 }
 
 .user-role {
   display: inline-flex;
   align-items: center;
   min-height: 22px;
+  flex: 0 0 auto;
   padding: 3px 7px;
   border-radius: 8px;
-  background: var(--surface-muted);
-  color: var(--muted);
+  background: #22303c;
+  color: #d7dee5;
   font-size: 12px;
   font-weight: 750;
   line-height: 1;
@@ -170,6 +181,19 @@ h2 {
 
 .logout-form {
   display: flex;
+}
+
+.logout-form .button {
+  width: 100%;
+}
+
+.user-menu .button-secondary {
+  background: #22303c;
+  color: #fff;
+}
+
+.user-menu .button-secondary:hover {
+  background: #2c3945;
 }
 
 .content {
@@ -442,21 +466,6 @@ input[type="number"]::-webkit-inner-spin-button {
 
   .topbar {
     flex-direction: column;
-  }
-
-  .user-menu {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .user-chip {
-    min-width: 0;
-  }
-
-  .user-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 }
 

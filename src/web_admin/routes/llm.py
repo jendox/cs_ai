@@ -16,7 +16,13 @@ from src.web_admin.templates import templates
 router = APIRouter(prefix="/llm", tags=["llm"])
 
 SUPPORTED_MODELS_BY_PROVIDER: dict[str, list[str]] = {
-    LLMProvider.GOOGLE.value: ["gemini-2.5-flash-lite"],
+    LLMProvider.GOOGLE.value: [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite-preview",
+    ],
 }
 SUPPORTED_PROVIDERS: dict[str, str] = {
     LLMProvider.GOOGLE.value: "Google",
