@@ -1,6 +1,7 @@
 import hashlib
+from datetime import datetime
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,3 +53,14 @@ class OurPostsRepository(BaseRepository):
         post_key = hashlib.md5(f"{ticket_id}:{body_hash}".encode()).hexdigest()
         stmt = delete(OurPostEntity).where(OurPostEntity.post_key == post_key)
         await self._session.execute(stmt)
+
+    async def exists_before(self, *, ticket_id: int, created_at: datetime) -> bool:
+        stmt = (
+            select(OurPostEntity.post_key)
+            .where(
+                OurPostEntity.ticket_id == ticket_id,
+                OurPostEntity.created_at < created_at,
+            )
+            .limit(1)
+        )
+        return await self._session.scalar(stmt) is not None

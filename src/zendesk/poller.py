@@ -111,11 +111,13 @@ class Poller(Service):
 
         return tickets_from, events_from
 
-    async def _process_open_tickets(self, updated_after: datetime) -> datetime:
+    async def _process_open_tickets(self, updated_after: datetime) -> tuple[datetime, set[int]]:
         lastest_seen = updated_after
+        initial_reply_ticket_ids: set[int] = set()
         async for ticket in self._zendesk_client.iter_updated_tickets(updated_after, self.brand, TicketStatus.active()):
             is_new = await self._upsert_ticket(ticket=ticket, observing=True)
             if is_new:
+                initial_reply_ticket_ids.add(ticket.id)
                 await self.job_queue.publish(
                     JobType.INITIAL_REPLY,
                     message=InitialReplyMessage(
@@ -126,7 +128,7 @@ class Poller(Service):
             pivot = ticket.updated_at or ticket.created_at
             if pivot:
                 lastest_seen = max(lastest_seen, pivot)
-        return lastest_seen
+        return lastest_seen, initial_reply_ticket_ids
 
     @staticmethod
     async def _create_status_event(prev_status: TicketStatus, ticket: Ticket) -> Event:
@@ -224,11 +226,23 @@ class Poller(Service):
                 brand=self.brand,
             )
 
+    @staticmethod
+    def _should_skip_initial_followup(
+        event: Event,
+        initial_reply_ticket_ids: set[int],
+    ) -> bool:
+        return (
+            event.ticket_id in initial_reply_ticket_ids
+            and event.kind == EventKind.COMMENT_PUBLIC
+            and event.author_role == EventAuthorRole.USER
+        )
+
     async def _process_events(
         self,
         tickets_repo: TicketsRepository,
         events_repo: EventsRepository,
         updated_after: datetime,
+        initial_reply_ticket_ids: set[int],
     ) -> datetime:
         latest_seen = updated_after
         async for event, ticket in self._iter_events(tickets_repo, updated_after):
@@ -247,7 +261,10 @@ class Poller(Service):
                     await self._create_status_job(event, ticket)
                 # Добавили комментарий
                 elif event.source_type == EventSourceType.COMMENT:
-                    await self._create_comment_job(event)
+                    if self._should_skip_initial_followup(event, initial_reply_ticket_ids):
+                        self.logger.info("followup.skipped_initial_comment")
+                    else:
+                        await self._create_comment_job(event)
             # Параллельно — обновляем краткое состояние тикета в БД
             await self._update_db_ticket(ticket)
 
@@ -268,10 +285,15 @@ class Poller(Service):
             extra={"tickets_from": str(tickets_from), "events_from": str(events_from)},
         )
         # Tickets - создаем jobs для новых тикетов
-        last_seen = await self._process_open_tickets(tickets_from)
+        last_seen, initial_reply_ticket_ids = await self._process_open_tickets(tickets_from)
         await checkpoints_repo.set_checkpoint(cp_tickets, last_seen)
         # Events - создаем jobs для новых событий
-        latest_seen = await self._process_events(tickets_repo, events_repo, events_from)
+        latest_seen = await self._process_events(
+            tickets_repo,
+            events_repo,
+            events_from,
+            initial_reply_ticket_ids,
+        )
         await checkpoints_repo.set_checkpoint(cp_events, latest_seen)
 
     async def run(self) -> None:

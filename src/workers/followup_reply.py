@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import ValidationError
@@ -25,6 +26,12 @@ from src.workers.reply_posting import ReplyPostingContext, ReplyPostingService
 from src.zendesk.models import comment_to_event
 
 from .log_context import log_context
+
+
+class FollowUpDecision(StrEnum):
+    PROCESS = "process"
+    SKIP = "skip"
+    RETRY = "retry"
 
 
 class FollowUpReplyWorker(Service):
@@ -82,6 +89,17 @@ class FollowUpReplyWorker(Service):
                         self.logger.info("ticket.not_found")
                         return True
 
+                    followup_decision = await self._should_process_followup(
+                        events_repo=events_repo,
+                        our_posts_repo=our_posts_repo,
+                        ticket_id=ticket_id,
+                        source_id=message.source_id,
+                    )
+                    if followup_decision == FollowUpDecision.RETRY:
+                        return False
+                    if followup_decision == FollowUpDecision.SKIP:
+                        return True
+
                     channel = await zendesk_repo.get_channel()
                     reply = await self._generate_followup_reply(ticket_id, events_repo)
                     return await reply_posting_service.post_reply(
@@ -102,6 +120,25 @@ class FollowUpReplyWorker(Service):
         except ValidationError as error:
             self.logger.error("payload.validation.error", extra={"error": str(error)})
             return None
+
+    async def _should_process_followup(
+        self,
+        *,
+        events_repo: EventsRepository,
+        our_posts_repo: OurPostsRepository,
+        ticket_id: int,
+        source_id: str,
+    ) -> FollowUpDecision:
+        source_created_at = await events_repo.get_comment_created_at(ticket_id=ticket_id, source_id=source_id)
+        if source_created_at is None:
+            self.logger.warning("followup.source_event_missing", extra={"source_id": source_id})
+            return FollowUpDecision.RETRY
+
+        if await our_posts_repo.exists_before(ticket_id=ticket_id, created_at=source_created_at):
+            return FollowUpDecision.PROCESS
+
+        self.logger.info("followup.skipped_before_initial_reply", extra={"source_id": source_id})
+        return FollowUpDecision.SKIP
 
     async def _generate_followup_reply(self, ticket_id: int, events_repo: EventsRepository) -> str:
         try:

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,3 +44,15 @@ class EventsRepository(BaseRepository):
             .order_by(EventEntity.created_at)
         )
         return list(await self._session.scalars(stmt))
+
+    async def get_comment_created_at(self, *, ticket_id: int, source_id: str) -> datetime | None:
+        stmt = (
+            select(EventEntity.created_at)
+            .where(
+                EventEntity.ticket_id == ticket_id,
+                EventEntity.source_type == EventSourceType.COMMENT.value,
+                EventEntity.source_id == source_id,
+            )
+            .limit(1)
+        )
+        return await self._session.scalar(stmt)
