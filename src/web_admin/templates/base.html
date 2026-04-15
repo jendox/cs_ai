@@ -28,7 +28,11 @@
         <a class="nav-link {% if active_page == 'prompts' %}is-active{% endif %}" href="/admin/prompts">
           Prompts
         </a>
-        <a class="nav-link is-disabled" href="#" aria-disabled="true">Users</a>
+        {% if current_user and current_user.role.value == "superadmin" %}
+          <a class="nav-link {% if active_page == 'users' %}is-active{% endif %}" href="/admin/users">
+            Users
+          </a>
+        {% endif %}
       </nav>
     </div>
 

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Users · CS Admin{% endblock %}
+{% block kicker %}Access{% endblock %}
+{% block page_title %}Users{% endblock %}
+
+{% block content %}
+<div class="users-layout">
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Admin Users</h2>
+        <p>Manage web admin access and roles.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Last Login</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in users %}
+            <tr>
+              <td>
+                <strong>{{ item.username }}</strong>
+                <small>#{{ item.id }}</small>
+              </td>
+              <td>
+                {% if item.id == current_user.id or item.role.value == "superadmin" %}
+                  <span class="user-role table-role">{{ item.role.value }}</span>
+                  {% if item.id != current_user.id and item.role.value == "superadmin" %}
+                    <form class="inline-form role-downgrade" method="post" action="/admin/users/{{ item.id }}/role">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <select name="role" aria-label="New role for {{ item.username }}" required>
+                        <option value="" selected>Change to...</option>
+                        {% for role in allowed_roles %}
+                          <option value="{{ role.value }}">{{ role.value }}</option>
+                        {% endfor %}
+                      </select>
+                      <button class="button button-secondary" type="submit">Set</button>
+                    </form>
+                  {% endif %}
+                {% else %}
+                  <form class="inline-form" method="post" action="/admin/users/{{ item.id }}/role">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <select name="role" aria-label="Role for {{ item.username }}">
+                      {% if item.role.value == "superadmin" %}
+                        <option value="superadmin" selected disabled>superadmin</option>
+                      {% endif %}
+                      {% for role in allowed_roles %}
+                        <option value="{{ role.value }}" {% if item.role == role %}selected{% endif %}>
+                          {{ role.value }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <button class="button button-secondary" type="submit">Set</button>
+                  </form>
+                {% endif %}
+              </td>
+              <td>
+                {% if item.is_active %}
+                  <span class="status-pill internal">active</span>
+                {% else %}
+                  <span class="status-pill public">inactive</span>
+                {% endif %}
+              </td>
+              <td>{{ item.last_login_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_login_at else "-" }}</td>
+              <td>
+                <div class="table-actions">
+                  <form method="post" action="/admin/users/{{ item.id }}/active">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    {% if item.is_active %}
+                      <input type="hidden" name="is_active" value="false">
+                      <button class="button button-secondary" type="submit" {% if item.id == current_user.id %}disabled{% endif %}>
+                        Disable
+                      </button>
+                    {% else %}
+                      <input type="hidden" name="is_active" value="true">
+                      <button class="button button-secondary" type="submit">Enable</button>
+                    {% endif %}
+                  </form>
+                  <details class="reset-password">
+                    <summary>Reset password</summary>
+                    <form class="reset-password-form" method="post" action="/admin/users/{{ item.id }}/password">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input name="password" type="password" placeholder="New password" autocomplete="new-password" required>
+                      <input
+                        name="password_confirm"
+                        type="password"
+                        placeholder="Confirm password"
+                        autocomplete="new-password"
+                        required
+                      >
+                      <button class="button button-primary" type="submit">Update</button>
+                    </form>
+                  </details>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Create User</h2>
+        <p>New users can sign in after creation.</p>
+      </div>
+    </div>
+
+    <form class="form" method="post" action="/admin/users">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="field">
+        <span>Username</span>
+        <input name="username" type="text" autocomplete="username" required>
+      </label>
+
+      <label class="field">
+        <span>Role</span>
+        <select name="role">
+          {% for role in allowed_roles %}
+            <option value="{{ role.value }}">{{ role.value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" minlength="8" autocomplete="new-password" required>
+      </label>
+
+      <label class="field">
+        <span>Confirm Password</span>
+        <input name="password_confirm" type="password" minlength="8" autocomplete="new-password" required>
+      </label>
+
+      <button class="button button-primary" type="submit">Create User</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

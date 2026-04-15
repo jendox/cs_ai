@@ -520,6 +520,92 @@ input[type="number"]::-webkit-inner-spin-button {
   min-width: 0;
 }
 
+.users-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 20px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 780px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.data-table td {
+  line-height: 1.35;
+}
+
+.data-table td strong,
+.data-table td small {
+  display: block;
+}
+
+.data-table td small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.table-role {
+  width: fit-content;
+}
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-form select {
+  min-width: 130px;
+}
+
+.role-downgrade {
+  margin-top: 8px;
+}
+
+.table-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 210px;
+}
+
+.reset-password summary {
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.reset-password-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.reset-password-form input {
+  min-width: 210px;
+}
+
 .prompt-form {
   gap: 14px;
 }
@@ -670,6 +756,10 @@ input[type="number"]::-webkit-inner-spin-button {
   }
 
   .prompt-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .users-layout {
     grid-template-columns: 1fr;
   }
 
