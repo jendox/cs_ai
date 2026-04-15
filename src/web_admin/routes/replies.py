@@ -26,7 +26,7 @@ from src.db.repositories import (
 )
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
-from src.libs.zendesk_client.models import Brand, Comment
+from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
@@ -42,6 +42,26 @@ TICKET_SAVED_MESSAGES: dict[str, str] = {
 TICKET_ERROR_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments could not be refreshed.",
     "ticket_not_found": "Ticket is not stored locally yet, so comments cannot be saved.",
+}
+
+EVENT_AUTHOR_LABELS: dict[str, str] = {
+    "user": "customer",
+    "agent": "agent",
+    "system": "system",
+    "unknown": "unknown author",
+}
+
+ATTEMPT_JOB_LABELS: dict[str, str] = {
+    JobType.INITIAL_REPLY.value: "initial reply",
+    JobType.FOLLOWUP_REPLY.value: "follow-up reply",
+}
+
+ATTEMPT_STATUS_TITLES: dict[ReplyAttemptStatus, str] = {
+    ReplyAttemptStatus.GENERATED: "Bot Reply Generated",
+    ReplyAttemptStatus.POSTED: "Bot Reply Posted",
+    ReplyAttemptStatus.FAILED: "Bot Reply Failed",
+    ReplyAttemptStatus.SKIPPED_DUPLICATE: "Duplicate Bot Reply Skipped",
+    ReplyAttemptStatus.EMPTY_REPLY: "Empty Bot Reply",
 }
 
 
@@ -146,19 +166,53 @@ def _ticket_flash(
     return None
 
 
+def _author_label(author_role: str | None) -> str | None:
+    if author_role is None:
+        return None
+    return EVENT_AUTHOR_LABELS.get(author_role, author_role)
+
+
+def _fallback_comment_author_label(comment: Comment) -> str:
+    if comment.author_id in AGENT_IDS:
+        return "agent"
+    if comment.author_id is None:
+        return "unknown author"
+    return "customer"
+
+
+def _event_title(event: EventEntity) -> str:
+    if event.source_type != "comment":
+        return "Zendesk Status Change"
+    author = _author_label(event.author_role)
+    if author == "customer":
+        return "Customer Comment"
+    if author == "agent":
+        return "Agent Comment"
+    return "Zendesk Comment"
+
+
+def _event_badge(event: EventEntity) -> str:
+    if event.kind == "comment_public":
+        return "public"
+    if event.kind == "comment_private":
+        return "internal"
+    if event.kind == "status_change":
+        return "status"
+    return event.kind
+
+
 def _build_event_timeline_item(event: EventEntity) -> TicketTimelineItem:
     is_comment = event.source_type == "comment"
-    title = "Zendesk Comment" if is_comment else "Zendesk Event"
     meta = [
-        f"Author {event.author_id}" if event.author_id else None,
-        event.author_role,
-        f"#{event.source_id}" if is_comment and event.source_id else None,
+        _author_label(event.author_role),
+        f"Author ID {event.author_id}" if event.author_id else None,
+        f"Zendesk comment #{event.source_id}" if is_comment and event.source_id else None,
     ]
     return TicketTimelineItem(
         kind="event",
         created_at=_event_created_at(event),
-        title=title,
-        badge=event.kind,
+        title=_event_title(event),
+        badge=_event_badge(event),
         badge_class=event.kind,
         body=event.body,
         meta=tuple(item for item in meta if item),
@@ -167,14 +221,16 @@ def _build_event_timeline_item(event: EventEntity) -> TicketTimelineItem:
 
 def _build_comment_timeline_item(comment: Comment) -> TicketTimelineItem:
     is_public = bool(comment.public)
+    author = _fallback_comment_author_label(comment)
     meta = [
-        f"Author {comment.author_id}" if comment.author_id else None,
-        f"#{comment.id}" if comment.id else None,
+        author,
+        f"Author ID {comment.author_id}" if comment.author_id else None,
+        f"Zendesk comment #{comment.id}" if comment.id else None,
     ]
     return TicketTimelineItem(
         kind="comment",
         created_at=_comment_created_at(comment),
-        title="Zendesk Comment",
+        title="Agent Comment" if author == "agent" else "Customer Comment",
         badge="public" if is_public else "internal",
         badge_class="public" if is_public else "internal",
         body=comment.body or "-",
@@ -184,16 +240,16 @@ def _build_comment_timeline_item(comment: Comment) -> TicketTimelineItem:
 
 def _build_attempt_timeline_item(attempt: TicketReplyAttemptEntity) -> TicketTimelineItem:
     meta = [
-        attempt.job_type,
+        ATTEMPT_JOB_LABELS.get(attempt.job_type, attempt.job_type),
         attempt.channel.value,
-        f"Comment {attempt.zendesk_comment_id}" if attempt.zendesk_comment_id else None,
+        f"Zendesk comment #{attempt.zendesk_comment_id}" if attempt.zendesk_comment_id else None,
         attempt.model,
         attempt.provider,
     ]
     return TicketTimelineItem(
         kind="attempt",
         created_at=attempt.created_at,
-        title="Reply Attempt",
+        title=ATTEMPT_STATUS_TITLES.get(attempt.status, "Bot Reply Attempt"),
         badge=attempt.status.value,
         badge_class=attempt.status.value,
         body=attempt.body,
