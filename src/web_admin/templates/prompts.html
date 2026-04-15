@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Prompts · CS Admin{% endblock %}
+{% block kicker %}LLM{% endblock %}
+{% block page_title %}Prompts{% endblock %}
+
+{% block content %}
+<div class="prompt-layout">
+  <aside class="prompt-list">
+    <div class="section-heading compact">
+      <div>
+        <h2>Prompt Library</h2>
+        <p>{{ summaries | length }} prompts across supported brands.</p>
+      </div>
+    </div>
+
+    <div class="prompt-items">
+      {% for item in summaries %}
+        <a
+          class="prompt-item {% if item.brand == selected_brand and item.key == selected_key %}is-active{% endif %}"
+          href="/admin/prompts?brand={{ item.brand.value }}&key={{ item.key.value }}"
+        >
+          <span>
+            <strong>{{ item.brand.name }}</strong>
+            <small>{{ item.key.value }}</small>
+          </span>
+          <span class="prompt-meta">
+            {{ item.length }} chars
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <section class="panel prompt-editor">
+    <div class="section-heading">
+      <div>
+        <h2>{{ selected_brand.name }} · {{ selected_key.value }}</h2>
+        <p>
+          Updated by {{ prompt.updated_by }} · {{ format_datetime(prompt.updated_at) }}
+        </p>
+      </div>
+      <a
+        class="button button-secondary"
+        href="/admin/prompts/export?brand={{ selected_brand.value }}&key={{ selected_key.value }}"
+      >
+        Export
+      </a>
+    </div>
+
+    <form class="form" method="post" action="/admin/prompts">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="brand" value="{{ selected_brand.value }}">
+      <input type="hidden" name="key" value="{{ selected_key.value }}">
+
+      <label class="field">
+        <span>Prompt Text</span>
+        <textarea name="text" rows="24" {% if not can_edit %}readonly{% endif %}>{{ prompt.text }}</textarea>
+      </label>
+
+      <label class="field">
+        <span>Comment</span>
+        <input
+          name="comment"
+          type="text"
+          value="{{ prompt.comment or '' }}"
+          placeholder="Optional change note"
+          {% if not can_edit %}readonly{% endif %}
+        >
+      </label>
+
+      {% if can_edit %}
+        <button class="button button-primary" type="submit">Save Prompt</button>
+      {% else %}
+        <p class="form-note">Only superadmins can update prompts.</p>
+      {% endif %}
+    </form>
+  </section>
+</div>
+{% endblock %}

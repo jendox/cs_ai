@@ -285,7 +285,8 @@ input[type="text"],
 input[type="number"],
 input[type="password"],
 input:not([type]),
-select {
+select,
+textarea {
   width: 100%;
   min-height: 42px;
   padding: 9px 11px;
@@ -320,9 +321,22 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 input[type="password"]:focus,
 input:not([type]):focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+textarea {
+  min-height: 440px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+textarea[readonly],
+input[readonly] {
+  color: var(--muted);
+  background: var(--surface-muted);
 }
 
 input[type="number"] {
@@ -365,6 +379,9 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 8px;
   min-height: 40px;
@@ -372,6 +389,7 @@ input[type="number"]::-webkit-inner-spin-button {
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .button-primary {
@@ -413,6 +431,75 @@ input[type="number"]::-webkit-inner-spin-button {
   border-color: #f0b8b2;
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.form-note {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.section-heading.compact {
+  margin-bottom: 14px;
+}
+
+.prompt-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.prompt-list {
+  align-self: start;
+}
+
+.prompt-items {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.prompt-item:hover,
+.prompt-item.is-active {
+  border-color: #9ed8cf;
+  background: var(--ok-bg);
+}
+
+.prompt-item span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prompt-item strong {
+  line-height: 1.2;
+}
+
+.prompt-item small,
+.prompt-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.prompt-meta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.prompt-editor {
+  min-width: 0;
 }
 
 .login-page {
@@ -461,6 +548,10 @@ input[type="number"]::-webkit-inner-spin-button {
   }
 
   .page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-layout {
     grid-template-columns: 1fr;
   }
 

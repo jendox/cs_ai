@@ -25,7 +25,9 @@
         <a class="nav-link {% if active_page == 'llm' %}is-active{% endif %}" href="/admin/llm">
           LLM Settings
         </a>
-        <a class="nav-link is-disabled" href="#" aria-disabled="true">Prompts</a>
+        <a class="nav-link {% if active_page == 'prompts' %}is-active{% endif %}" href="/admin/prompts">
+          Prompts
+        </a>
         <a class="nav-link is-disabled" href="#" aria-disabled="true">Users</a>
       </nav>
     </div>
