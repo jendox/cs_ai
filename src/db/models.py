@@ -119,6 +119,55 @@ class OurPost(Base):
     )
 
 
+class ReplyAttemptStatus(StrEnum):
+    GENERATED = "generated"
+    POSTED = "posted"
+    FAILED = "failed"
+    SKIPPED_DUPLICATE = "skipped_duplicate"
+    EMPTY_REPLY = "empty_reply"
+
+
+reply_attempt_status_enum = ENUM(ReplyAttemptStatus, name="reply_attempt_status_enum")
+
+
+class TicketReplyAttempt(Base):
+    __tablename__ = "ticket_reply_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "tickets.ticket_id",
+            onupdate="CASCADE",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    job_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    channel: Mapped[PostChannel] = mapped_column(post_channel_enum, nullable=False)
+    status: Mapped[ReplyAttemptStatus] = mapped_column(reply_attempt_status_enum, nullable=False)
+
+    body_hash: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    zendesk_comment_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    iteration_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        Index("idx_reply_attempts_ticket_created", "ticket_id", "created_at"),
+        Index("idx_reply_attempts_status_created", "status", "created_at"),
+        Index("idx_reply_attempts_brand_created", "brand_id", "created_at"),
+    )
+
+
 class Checkpoint(Base):
     __tablename__ = "checkpoints"
 
