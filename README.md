@@ -1,9 +1,9 @@
-# AI Customer Support Assistant (Zendesk + LLM + Telegram Admin)
+# AI Customer Support Assistant (Zendesk + LLM + Admin UI)
 
 Production-style backend service for automated Zendesk ticket handling with:
 - asynchronous event processing,
 - AI-generated replies,
-- runtime admin controls via Telegram,
+- runtime admin controls via Telegram and Web Admin,
 - durable queues and retries via RabbitMQ.
 
 This repository is designed as a practical engineering example: real integrations, operational concerns, and modular architecture.
@@ -20,7 +20,7 @@ This project addresses that with an event-driven pipeline:
 2. Convert updates to jobs.
 3. Process jobs with workers.
 4. Generate and post replies.
-5. Manage runtime behavior from Telegram without redeploy.
+5. Manage runtime behavior from Telegram or Web Admin without redeploy.
 
 ## Key Features
 
@@ -35,6 +35,11 @@ This project addresses that with an event-driven pipeline:
   - LLM settings,
   - prompt export/import,
   - Zendesk comment mode (`internal` vs `public`).
+- FastAPI Web Admin for:
+  - Zendesk comment mode (`internal` vs `public`),
+  - LLM response/classification runtime settings,
+  - prompt viewing/export/editing,
+  - web-admin user management.
 - Structured JSON logging with context and secret redaction.
 
 ## Architecture Overview
@@ -45,6 +50,7 @@ Main runtime services:
 - `FollowUpReplyWorker` (per brand)
 - `TicketClosedWorker` (per brand)
 - `TelegramAdmin`
+- `WebAdmin` (standalone FastAPI entrypoint)
 
 Core dependencies:
 - PostgreSQL for state/configuration.
@@ -83,6 +89,7 @@ Core dependencies:
 - `src/db/` - SQLAlchemy models and repositories.
 - `src/ai/` - LLM runtime settings, prompts, clients, tools.
 - `src/telegram/` - admin bot handlers/middlewares/filters.
+- `src/web_admin/` - FastAPI Web Admin routes, templates, sessions, auth.
 - `deploy/` - Dockerfiles, compose files, env templates, deployment guide.
 
 ## Local Development
@@ -114,6 +121,51 @@ uv run alembic upgrade head
 uv run python run.py
 ```
 
+6. Run Web Admin in a separate process:
+
+```bash
+uv run python run_web.py
+```
+
+By default the Web Admin listens on `WEB__HOST=0.0.0.0` and `WEB__PORT=8080`.
+
+## Web Admin
+
+The Web Admin is a separate FastAPI app started by `run_web.py`.
+
+Required environment variables:
+
+- `WEB__SESSION_SECRET` - random secret used for signed session and CSRF cookies.
+- `WEB__BOOTSTRAP_USERNAME` - initial superadmin username.
+- `WEB__BOOTSTRAP_PASSWORD` - initial superadmin password.
+- `WEB__COOKIE_SECURE` - set to `true` behind HTTPS in production.
+
+On startup Web Admin ensures the bootstrap user exists, is active, and has the
+`superadmin` role. It does not overwrite the password of an existing bootstrap
+user.
+
+Available sections:
+
+- `Zendesk` - switch generated comments between internal notes and public replies.
+- `LLM Settings` - update response and classification runtime parameters.
+- `Prompts` - view/export prompts; users with `admin` or `superadmin` can edit.
+- `Users` - superadmin-only management for web-admin users.
+
+Web-admin roles:
+
+- `user` - read-only access to runtime pages.
+- `admin` - can update Zendesk mode, LLM settings, and prompts.
+- `superadmin` - can also manage web-admin users.
+
+Before first Web Admin start, apply migrations:
+
+```bash
+uv run alembic upgrade head
+```
+
+The `admin_users` table is required for login. The bootstrap superadmin is
+created automatically by `run_web.py`.
+
 ## Docker (Dev/Prod)
 
 Deployment assets are provided in `deploy/`:
@@ -131,6 +183,14 @@ Telegram admin commands include:
 - `/prompts`, `/prompt_info`, `/prompt_export`, `/prompt_import`
 - `/zendesk_mode`, `/zendesk_mode_set internal|public`
 - `/ticket`, `/observe`, `/not_observe`
+
+Web Admin is available at:
+
+- `GET /admin/login`
+- `GET /admin/zendesk/mode`
+- `GET /admin/llm`
+- `GET /admin/prompts`
+- `GET /admin/users` (`superadmin` only)
 
 ## Current Scope and Limitations
 
