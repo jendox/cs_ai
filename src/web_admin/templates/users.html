@@ -5,117 +5,174 @@
 {% block page_title %}Users{% endblock %}
 
 {% block content %}
-<div class="users-layout">
-  <section class="panel">
-    <div class="section-heading">
-      <div>
-        <h2>Admin Users</h2>
-        <p>Manage web admin access and roles.</p>
-      </div>
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Admin Users</h2>
+      <p>Manage web admin access and roles.</p>
     </div>
+    <button class="icon-button icon-button-primary" type="button" title="Create user" aria-label="Create user" data-dialog-open="create-user-dialog">
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M12 5v14"></path>
+        <path d="M5 12h14"></path>
+      </svg>
+    </button>
+  </div>
 
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="col-user">User</th>
+          <th class="col-role">Role</th>
+          <th class="col-status">Status</th>
+          <th class="col-created">Created</th>
+          <th class="col-login">Last Login</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in users %}
           <tr>
-            <th>User</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th>Last Login</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in users %}
-            <tr>
-              <td>
-                <strong>{{ item.username }}</strong>
-                <small>#{{ item.id }}</small>
-              </td>
-              <td>
-                {% if item.id == current_user.id or item.role.value == "superadmin" %}
-                  <span class="user-role table-role">{{ item.role.value }}</span>
-                  {% if item.id != current_user.id and item.role.value == "superadmin" %}
-                    <form class="inline-form role-downgrade" method="post" action="/admin/users/{{ item.id }}/role">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <select name="role" aria-label="New role for {{ item.username }}" required>
-                        <option value="" selected>Change to...</option>
-                        {% for role in allowed_roles %}
-                          <option value="{{ role.value }}">{{ role.value }}</option>
-                        {% endfor %}
-                      </select>
-                      <button class="button button-secondary" type="submit">Set</button>
-                    </form>
-                  {% endif %}
-                {% else %}
-                  <form class="inline-form" method="post" action="/admin/users/{{ item.id }}/role">
+            <td class="col-user">
+              <strong>{{ item.username }}</strong>
+            </td>
+            <td class="col-role">
+              <div class="role-cell">
+                <span class="user-role table-role" data-role-label>{{ item.role.value }}</span>
+                {% if item.id != current_user.id %}
+                  <form class="inline-form role-form" method="post" action="/admin/users/{{ item.id }}/role" data-role-form>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <select name="role" aria-label="Role for {{ item.username }}">
-                      {% if item.role.value == "superadmin" %}
-                        <option value="superadmin" selected disabled>superadmin</option>
-                      {% endif %}
+                    <select name="role" aria-label="Role for {{ item.username }}" disabled data-role-select>
                       {% for role in allowed_roles %}
                         <option value="{{ role.value }}" {% if item.role == role %}selected{% endif %}>
                           {{ role.value }}
                         </option>
                       {% endfor %}
                     </select>
-                    <button class="button button-secondary" type="submit">Set</button>
                   </form>
                 {% endif %}
-              </td>
-              <td>
-                {% if item.is_active %}
-                  <span class="status-pill internal">active</span>
-                {% else %}
-                  <span class="status-pill public">inactive</span>
+              </div>
+            </td>
+            <td class="col-status">
+              {% if item.is_active %}
+                <span class="status-pill internal">active</span>
+              {% else %}
+                <span class="status-pill public">inactive</span>
+              {% endif %}
+            </td>
+            <td class="col-created">{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "-" }}</td>
+            <td class="col-login">{{ item.last_login_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_login_at else "-" }}</td>
+            <td class="col-actions">
+              <div class="table-actions">
+                <form method="post" action="/admin/users/{{ item.id }}/active">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  {% if item.is_active %}
+                    <input type="hidden" name="is_active" value="false">
+                    <button
+                      class="icon-button"
+                      type="submit"
+                      title="Disable user"
+                      aria-label="Disable {{ item.username }}"
+                      {% if item.id == current_user.id %}disabled{% endif %}
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8"></circle>
+                        <path d="m7 7 10 10"></path>
+                      </svg>
+                    </button>
+                  {% else %}
+                    <input type="hidden" name="is_active" value="true">
+                    <button class="icon-button" type="submit" title="Enable user" aria-label="Enable {{ item.username }}">
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8"></circle>
+                        <path d="m8.5 12.5 2.2 2.2 4.8-5.4"></path>
+                      </svg>
+                    </button>
+                  {% endif %}
+                </form>
+                {% if item.id != current_user.id %}
+                  <button
+                    class="icon-button"
+                    type="button"
+                    title="Edit role"
+                    aria-label="Edit role for {{ item.username }}"
+                    data-role-toggle
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <circle cx="12" cy="8" r="4"></circle>
+                      <path d="M5 20a7 7 0 0 1 14 0"></path>
+                      <path d="M18 4v4"></path>
+                      <path d="M16 6h4"></path>
+                    </svg>
+                  </button>
                 {% endif %}
-              </td>
-              <td>{{ item.last_login_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_login_at else "-" }}</td>
-              <td>
-                <div class="table-actions">
-                  <form method="post" action="/admin/users/{{ item.id }}/active">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    {% if item.is_active %}
-                      <input type="hidden" name="is_active" value="false">
-                      <button class="button button-secondary" type="submit" {% if item.id == current_user.id %}disabled{% endif %}>
-                        Disable
-                      </button>
-                    {% else %}
-                      <input type="hidden" name="is_active" value="true">
-                      <button class="button button-secondary" type="submit">Enable</button>
-                    {% endif %}
-                  </form>
-                  <details class="reset-password">
-                    <summary>Reset password</summary>
-                    <form class="reset-password-form" method="post" action="/admin/users/{{ item.id }}/password">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input name="password" type="password" placeholder="New password" autocomplete="new-password" required>
-                      <input
-                        name="password_confirm"
-                        type="password"
-                        placeholder="Confirm password"
-                        autocomplete="new-password"
-                        required
-                      >
-                      <button class="button button-primary" type="submit">Update</button>
-                    </form>
-                  </details>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
+                <button
+                  class="icon-button"
+                  type="button"
+                  title="Reset password"
+                  aria-label="Reset password for {{ item.username }}"
+                  data-dialog-open="reset-password-{{ item.id }}"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <circle cx="8" cy="12" r="3"></circle>
+                    <path d="M11 12h9"></path>
+                    <path d="M16 12v3"></path>
+                    <path d="M19 12v2"></path>
+                  </svg>
+                </button>
+              </div>
 
-  <section class="panel">
-    <div class="section-heading">
+              <dialog class="modal" id="reset-password-{{ item.id }}">
+                <div class="modal-panel">
+                  <div class="modal-heading">
+                    <div>
+                      <h2>Reset Password</h2>
+                      <p>{{ item.username }}</p>
+                    </div>
+                    <button class="icon-button" type="button" title="Close" aria-label="Close" data-dialog-close>
+                      <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="m6 6 12 12"></path>
+                        <path d="m18 6-12 12"></path>
+                      </svg>
+                    </button>
+                  </div>
+
+                  <form class="form" method="post" action="/admin/users/{{ item.id }}/password">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="field">
+                      <span>New Password</span>
+                      <input name="password" type="password" minlength="8" autocomplete="new-password" required>
+                    </label>
+                    <label class="field">
+                      <span>Confirm Password</span>
+                      <input name="password_confirm" type="password" minlength="8" autocomplete="new-password" required>
+                    </label>
+                    <button class="button button-primary" type="submit">Update Password</button>
+                  </form>
+                </div>
+              </dialog>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog class="modal" id="create-user-dialog">
+  <div class="modal-panel">
+    <div class="modal-heading">
       <div>
         <h2>Create User</h2>
         <p>New users can sign in after creation.</p>
       </div>
+      <button class="icon-button" type="button" title="Close" aria-label="Close" data-dialog-close>
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="m6 6 12 12"></path>
+          <path d="m18 6-12 12"></path>
+        </svg>
+      </button>
     </div>
 
     <form class="form" method="post" action="/admin/users">
@@ -147,6 +204,51 @@
 
       <button class="button button-primary" type="submit">Create User</button>
     </form>
-  </section>
-</div>
+  </div>
+</dialog>
+
+<script>
+  (() => {
+    document.querySelectorAll("[data-dialog-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const dialog = document.getElementById(button.dataset.dialogOpen);
+        if (dialog && "showModal" in dialog) {
+          dialog.showModal();
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.closest("dialog")?.close();
+      });
+    });
+
+    document.querySelectorAll("[data-role-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const row = button.closest("tr");
+        const form = row?.querySelector("[data-role-form]");
+        const select = row?.querySelector("[data-role-select]");
+        const label = row?.querySelector("[data-role-label]");
+
+        if (!form || !select || !label) {
+          return;
+        }
+
+        if (form.classList.contains("is-editing")) {
+          form.requestSubmit();
+          return;
+        }
+
+        form.classList.add("is-editing");
+        select.disabled = false;
+        label.hidden = true;
+        select.focus();
+        button.title = "Save role";
+        button.setAttribute("aria-label", button.getAttribute("aria-label")?.replace("Edit", "Save") || "Save role");
+        button.classList.add("icon-button-primary");
+      });
+    });
+  })();
+</script>
 {% endblock %}
