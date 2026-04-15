@@ -138,7 +138,7 @@ async def get_prompts(  # noqa: PLR0913, PLR0917
             "selected_brand": selected_brand,
             "selected_key": selected_key,
             "prompt": prompt,
-            "can_edit": user.role.level >= UserRole.SUPERADMIN.level,
+            "can_edit": user.role.level >= UserRole.ADMIN.level,
             "format_datetime": _format_datetime,
         },
     )
@@ -172,7 +172,7 @@ async def export_prompt(
 
 @router.post("")
 async def update_prompt(
-    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.SUPERADMIN))],
+    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
     _: Annotated[None, Depends(require_csrf)],
     brand: Annotated[str, Form()],
     key: Annotated[str, Form()],

@@ -48,33 +48,133 @@
       </a>
     </div>
 
-    <form class="form" method="post" action="/admin/prompts">
+    <form class="form prompt-form" method="post" action="/admin/prompts" data-prompt-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="brand" value="{{ selected_brand.value }}">
       <input type="hidden" name="key" value="{{ selected_key.value }}">
 
-      <label class="field">
-        <span>Prompt Text</span>
-        <textarea name="text" rows="24" {% if not can_edit %}readonly{% endif %}>{{ prompt.text }}</textarea>
-      </label>
+      <div class="field">
+        <div class="field-heading">
+          <span>Prompt Text</span>
+          <div class="field-actions">
+            {% if can_edit %}
+              <button class="icon-button" type="button" title="Edit prompt" aria-label="Edit prompt" data-edit-prompt>
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M4 20h4l10.5-10.5-4-4L4 16v4Z"></path>
+                  <path d="m13.5 6.5 4 4"></path>
+                  <path d="M15 5l1.2-1.2a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L19 9"></path>
+                </svg>
+              </button>
+              <button class="icon-button icon-button-primary" type="submit" title="Save prompt" disabled data-save-prompt>
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M5 4h12l2 2v14H5V4Z"></path>
+                  <path d="M8 4v6h8V4"></path>
+                  <path d="M8 20v-6h8v6"></path>
+                  <path d="M10 7h4"></path>
+                </svg>
+              </button>
+            {% endif %}
+          </div>
+        </div>
 
-      <label class="field">
+        <pre class="prompt-preview" data-prompt-preview>{{ prompt.text }}</pre>
+
+        <textarea
+          class="prompt-textarea"
+          name="text"
+          rows="24"
+          {% if can_edit %}disabled{% else %}readonly disabled{% endif %}
+          data-prompt-textarea
+        >{{ prompt.text }}</textarea>
+      </div>
+
+      <label class="field prompt-comment" data-prompt-comment>
         <span>Comment</span>
         <input
           name="comment"
           type="text"
           value="{{ prompt.comment or '' }}"
           placeholder="Optional change note"
-          {% if not can_edit %}readonly{% endif %}
+          {% if can_edit %}disabled{% else %}readonly disabled{% endif %}
+          data-prompt-comment-input
         >
       </label>
 
-      {% if can_edit %}
-        <button class="button button-primary" type="submit">Save Prompt</button>
-      {% else %}
-        <p class="form-note">Only superadmins can update prompts.</p>
+      {% if not can_edit %}
+        <p class="form-note">Admins and superadmins can update prompts.</p>
       {% endif %}
     </form>
   </section>
 </div>
+
+<script>
+  (() => {
+    const form = document.querySelector("[data-prompt-form]");
+    const editButton = document.querySelector("[data-edit-prompt]");
+    const saveButton = document.querySelector("[data-save-prompt]");
+    const preview = document.querySelector("[data-prompt-preview]");
+    const textarea = document.querySelector("[data-prompt-textarea]");
+    const comment = document.querySelector("[data-prompt-comment]");
+    const commentInput = document.querySelector("[data-prompt-comment-input]");
+
+    if (!form || !editButton || !saveButton || !preview || !textarea) {
+      return;
+    }
+
+    const initialText = textarea.value;
+    const initialComment = commentInput ? commentInput.value : "";
+
+    const hasChanges = () => {
+      const currentComment = commentInput ? commentInput.value : "";
+      return textarea.value !== initialText || currentComment !== initialComment;
+    };
+
+    const enterEditMode = () => {
+      form.classList.add("is-editing");
+      textarea.disabled = false;
+      if (commentInput) {
+        commentInput.disabled = false;
+      }
+      preview.hidden = true;
+      textarea.focus();
+      if (comment) {
+        comment.hidden = false;
+      }
+    };
+
+    const leaveEditMode = () => {
+      form.classList.remove("is-editing");
+      textarea.disabled = true;
+      if (commentInput) {
+        commentInput.disabled = true;
+      }
+      saveButton.disabled = true;
+      editButton.disabled = false;
+      preview.hidden = false;
+      if (comment) {
+        comment.hidden = true;
+      }
+    };
+
+    const syncActions = () => {
+      const dirty = hasChanges();
+      saveButton.disabled = !dirty;
+      editButton.disabled = dirty;
+    };
+
+    textarea.addEventListener("input", syncActions);
+    if (commentInput) {
+      commentInput.addEventListener("input", syncActions);
+    }
+
+    editButton.addEventListener("click", () => {
+      if (form.classList.contains("is-editing")) {
+        leaveEditMode();
+        return;
+      }
+      enterEditMode();
+      syncActions();
+    });
+  })();
+</script>
 {% endblock %}
