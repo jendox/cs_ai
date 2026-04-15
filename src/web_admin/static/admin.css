@@ -850,8 +850,30 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .filters-form {
-  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(140px, 1fr) auto auto;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
   align-items: end;
+}
+
+.filter-reset-button {
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.filter-reset-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.filter-reset-button:active {
+  transform: translateY(1px) scale(0.98);
 }
 
 .pagination {

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -35,6 +36,13 @@ from src.zendesk.models import comment_to_event
 router = APIRouter(prefix="/replies", tags=["replies"])
 
 DEFAULT_LIMIT = 50
+DEFAULT_PERIOD = "all"
+PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("24h", "Last 24h"),
+    ("7d", "Last 7 days"),
+    ("30d", "Last 30 days"),
+    ("all", "All time"),
+)
 
 TICKET_SAVED_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments refreshed.",
@@ -86,6 +94,15 @@ def _parse_int(value: str | None) -> int | None:
         return None
 
 
+def _parse_ticket_id_prefix(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized if normalized.isdigit() else None
+
+
 def _parse_status(value: str | None) -> ReplyAttemptStatus | None:
     if not value:
         return None
@@ -111,6 +128,44 @@ def _parse_brand(value: str | None) -> Brand | None:
         return Brand(int(value))
     except (TypeError, ValueError):
         return None
+
+
+def _parse_period(value: str | None) -> str:
+    allowed = {item[0] for item in PERIOD_OPTIONS}
+    return value if value in allowed else DEFAULT_PERIOD
+
+
+def _period_created_from(period: str) -> datetime | None:
+    now = datetime.now(UTC)
+    if period == "24h":
+        return now - timedelta(hours=24)
+    if period == "7d":
+        return now - timedelta(days=7)
+    if period == "30d":
+        return now - timedelta(days=30)
+    return None
+
+
+def _replies_url(  # noqa: PLR0913
+    *,
+    ticket_id: str,
+    status: str,
+    job_type: str,
+    brand: str,
+    period: str,
+    limit: int,
+    offset: int,
+) -> str:
+    query = {
+        "ticket_id": ticket_id,
+        "status": status,
+        "job_type": job_type,
+        "brand": brand,
+        "period": period,
+        "limit": str(limit),
+        "offset": str(offset),
+    }
+    return f"/admin/replies?{urlencode(query)}"
 
 
 def _comment_created_at(comment: Comment) -> datetime:
@@ -281,14 +336,18 @@ async def get_replies(  # noqa: PLR0913, PLR0917
     status: str | None = None,
     job_type: str | None = None,
     brand: str | None = None,
+    period: str = DEFAULT_PERIOD,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Response:
+    selected_period = _parse_period(period)
     filters = ReplyAttemptFilters(
-        ticket_id=_parse_int(ticket_id),
+        ticket_id=None,
+        ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
         job_type=_parse_job_type(job_type),
         brand=_parse_brand(brand),
+        created_from=_period_created_from(selected_period),
     )
 
     async with session_local() as session:
@@ -301,6 +360,12 @@ async def get_replies(  # noqa: PLR0913, PLR0917
         summary = await repo.get_summary(filters=filters)
 
     csrf = session_manager.create_csrf_token()
+    selected_ticket_id = ticket_id or ""
+    selected_status = status or ""
+    selected_job_type = job_type or ""
+    selected_brand = brand or ""
+    prev_offset = max(result.offset - result.limit, 0)
+    next_offset = result.offset + result.limit
     response = templates.TemplateResponse(
         request,
         "replies.html",
@@ -310,17 +375,35 @@ async def get_replies(  # noqa: PLR0913, PLR0917
             "csrf_token": csrf.raw,
             "result": result,
             "summary": summary,
-            "selected_ticket_id": ticket_id or "",
-            "selected_status": status or "",
-            "selected_job_type": job_type or "",
-            "selected_brand": brand or "",
+            "selected_ticket_id": selected_ticket_id,
+            "selected_status": selected_status,
+            "selected_job_type": selected_job_type,
+            "selected_brand": selected_brand,
+            "selected_period": selected_period,
             "statuses": list(ReplyAttemptStatus),
             "job_types": [JobType.INITIAL_REPLY, JobType.FOLLOWUP_REPLY],
             "brands": list(Brand),
+            "period_options": PERIOD_OPTIONS,
             "limit": result.limit,
             "offset": result.offset,
-            "prev_offset": max(result.offset - result.limit, 0),
-            "next_offset": result.offset + result.limit,
+            "prev_url": _replies_url(
+                ticket_id=selected_ticket_id,
+                status=selected_status,
+                job_type=selected_job_type,
+                brand=selected_brand,
+                period=selected_period,
+                limit=result.limit,
+                offset=prev_offset,
+            ),
+            "next_url": _replies_url(
+                ticket_id=selected_ticket_id,
+                status=selected_status,
+                job_type=selected_job_type,
+                brand=selected_brand,
+                period=selected_period,
+                limit=result.limit,
+                offset=next_offset,
+            ),
             "has_prev": result.offset > 0,
             "has_next": result.offset + result.limit < result.total,
             "flash": None,

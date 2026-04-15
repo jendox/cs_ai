@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import ColumnElement, desc, func, select
+from sqlalchemy import ColumnElement, String, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
@@ -36,9 +37,11 @@ class ReplyAttemptCreate:
 @dataclass(frozen=True)
 class ReplyAttemptFilters:
     ticket_id: int | None = None
+    ticket_id_prefix: str | None = None
     status: ReplyAttemptStatus | None = None
     job_type: JobType | None = None
     brand: Brand | None = None
+    created_from: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -178,19 +181,30 @@ class TicketReplyAttemptsRepository(BaseRepository):
         return entity
 
     @staticmethod
+    def _ticket_filter_condition(filters: ReplyAttemptFilters) -> ColumnElement[bool] | None:
+        if filters.ticket_id is not None:
+            return TicketReplyAttemptEntity.ticket_id == filters.ticket_id
+        if filters.ticket_id_prefix is not None:
+            return TicketReplyAttemptEntity.ticket_id.cast(String).like(f"{filters.ticket_id_prefix}%")
+        return None
+
+    @staticmethod
     def _attempt_filter_conditions(filters: ReplyAttemptFilters | None) -> list[ColumnElement[bool]]:
         if filters is None:
             return []
 
         conditions: list[ColumnElement[bool]] = []
-        if filters.ticket_id is not None:
-            conditions.append(TicketReplyAttemptEntity.ticket_id == filters.ticket_id)
+        ticket_condition = TicketReplyAttemptsRepository._ticket_filter_condition(filters)
+        if ticket_condition is not None:
+            conditions.append(ticket_condition)
         if filters.status is not None:
             conditions.append(TicketReplyAttemptEntity.status == filters.status)
         if filters.job_type is not None:
             conditions.append(TicketReplyAttemptEntity.job_type == filters.job_type.value)
         if filters.brand is not None:
             conditions.append(TicketReplyAttemptEntity.brand_id == filters.brand.value)
+        if filters.created_from is not None:
+            conditions.append(TicketReplyAttemptEntity.created_at >= filters.created_from)
 
         return conditions
 
