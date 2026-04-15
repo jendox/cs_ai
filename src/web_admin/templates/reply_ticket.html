@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Ticket {{ ticket_id }} · CS Admin{% endblock %}
+{% block kicker %}Operations{% endblock %}
+{% block page_title %}Ticket {{ ticket_id }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Ticket Summary</h2>
+      <p>Zendesk conversation and generated reply attempts.</p>
+    </div>
+    <a class="button button-secondary" href="/admin/replies">Back to Replies</a>
+  </div>
+
+  <div class="summary-grid">
+    <div>
+      <span class="meta-label">Status</span>
+      <strong>{{ ticket.status if ticket else "unknown" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Brand</span>
+      <strong>{{ ticket.brand_id if ticket else "-" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Observing</span>
+      <strong>{{ "yes" if ticket and ticket.observing else "no" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Last Seen</span>
+      <strong>{{ ticket.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if ticket and ticket.last_seen_at else "-" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Zendesk Comments</span>
+      <strong>{{ comments|length }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Reply Attempts</span>
+      <strong>{{ attempts|length }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Timeline</h2>
+      <p>Zendesk comments and generated reply attempts in chronological order.</p>
+    </div>
+  </div>
+
+  {% if comments_error %}
+    <div class="notice error">Zendesk comments could not be loaded: {{ comments_error }}</div>
+  {% endif %}
+
+  <div class="timeline">
+    {% for item in timeline_items %}
+      <article class="timeline-item timeline-{{ item.kind }} {{ item.badge_class }}">
+        <div class="timeline-meta">
+          <strong>{{ item.title }}</strong>
+          <span class="status-pill {{ item.badge_class }}">{{ item.badge }}</span>
+          <span>{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span>
+          {% for meta in item.meta %}
+            <span>{{ meta }}</span>
+          {% endfor %}
+        </div>
+
+        {% if item.body %}
+          <div class="timeline-body">{{ item.body }}</div>
+        {% endif %}
+
+        {% if item.error %}
+          <div class="notice error">{{ item.error }}</div>
+        {% endif %}
+      </article>
+    {% else %}
+      <p class="empty-state">No timeline events found.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

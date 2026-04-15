@@ -79,7 +79,9 @@
           <tr>
             <td>{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "-" }}</td>
             <td>
-              <strong>{{ item.ticket_id }}</strong>
+              <a class="table-link" href="/admin/replies/tickets/{{ item.ticket_id }}">
+                <strong>{{ item.ticket_id }}</strong>
+              </a>
               {% if item.iteration_id %}
                 <small>{{ item.iteration_id }}</small>
               {% endif %}
