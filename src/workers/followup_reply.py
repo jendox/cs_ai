@@ -1,22 +1,27 @@
-import hashlib
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
-import httpx
 from pydantic import ValidationError
 
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
 from src.db import session_local
-from src.db.models import PostChannel
-from src.db.repositories import OurPostsRepository, TicketNotFound, TicketsRepository, ZendeskRuntimeSettingsRepository
+from src.db.models import LLMPromptKey
+from src.db.repositories import (
+    OurPostsRepository,
+    TicketNotFound,
+    TicketReplyAttemptsRepository,
+    TicketsRepository,
+    ZendeskRuntimeSettingsRepository,
+)
 from src.jobs.models import JobType, UserReplyMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import AGENT_IDS, Brand
 from src.logs.filters import log_ctx
 from src.services import Service
+from src.workers.reply_posting import ReplyPostingContext, ReplyPostingService
 
 
 @asynccontextmanager
@@ -71,7 +76,14 @@ class FollowUpReplyWorker(Service):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
+                reply_attempts_repo = TicketReplyAttemptsRepository(session)
                 zendesk_repo = ZendeskRuntimeSettingsRepository(session)
+                reply_posting_service = ReplyPostingService(
+                    zendesk_client=self._zendesk_client,
+                    logger=self.logger,
+                    our_posts_repo=our_posts_repo,
+                    reply_attempts_repo=reply_attempts_repo,
+                )
 
                 async with session.begin():
                     try:
@@ -83,17 +95,19 @@ class FollowUpReplyWorker(Service):
                         self.logger.info("ticket.not_found")
                         return True
 
-                    reply = await self._generate_followup_reply(ticket_id)
-                    if not reply:
-                        return False
-
                     channel = await zendesk_repo.get_channel()
-                    saved = await self._save_reply(our_posts_repo, reply, ticket_id, channel)
-                    if not saved:
-                        return True
-
-                    is_public = channel == PostChannel.PUBLIC
-                    return await self._post_comment(ticket_id, reply, public=is_public)
+                    reply = await self._generate_followup_reply(ticket_id)
+                    return await reply_posting_service.post_reply(
+                        context=ReplyPostingContext(
+                            ticket_id=ticket_id,
+                            brand_id=self.brand.value,
+                            job_type=JobType.FOLLOWUP_REPLY.value,
+                            channel=channel,
+                            prompt_key=LLMPromptKey.FOLLOWUP_REPLY.value,
+                            iteration_id=iteration_id,
+                        ),
+                        reply=reply,
+                    )
 
     def _parse_message(self, payload: dict) -> UserReplyMessage | None:
         try:
@@ -117,10 +131,10 @@ class FollowUpReplyWorker(Service):
             )
             if not reply:
                 # Пустой ответ — странно; можно вернуть False для retry или True, чтобы не зациклиться.
-                self.logger.warning("ai.empty_body", extra={"ticket_id": ticket_id})
+                self.logger.warning("ai.empty_body")
             return reply
         except Exception as exc:
-            self.logger.warning("ai.generate_failed", extra={"ticket_id": ticket_id, "error": str(exc)})
+            self.logger.warning("ai.generate_failed", extra={"error": str(exc)})
             return ""
 
     async def _build_conversation_messages(self, ticket_id: int) -> list[dict[str, Any]]:
@@ -137,39 +151,3 @@ class FollowUpReplyWorker(Service):
             messages.append({"role": role, "content": body})
 
         return messages
-
-    async def _save_reply(
-        self,
-        our_post_repo: OurPostsRepository,
-        body: str,
-        ticket_id: int,
-        channel: PostChannel,
-    ) -> bool:
-        body_hash = hashlib.md5(body.encode()).hexdigest()
-        recorded = await our_post_repo.record_our_post(
-            ticket_id=ticket_id, body_hash=body_hash, body=body, channel=channel,
-        )
-        if not recorded:
-            # такой ответ уже фиксировали — не дублируем
-            self.logger.info("our_post.duplicate_skip", extra={"ticket_id": ticket_id})
-            return False
-        self.logger.info("our_post.reply.saved", extra={"ticket_id": ticket_id})
-        return True
-
-    async def _post_comment(
-        self,
-        ticket_id: int,
-        comment: str,
-        *,
-        public: bool,
-    ) -> bool:
-        try:
-            await self._zendesk_client.add_comment(ticket_id, comment, public=public)
-            self.logger.info("comment.posted", extra={"ticket_id": ticket_id})
-            return True
-        except httpx.HTTPError as error:
-            self.logger.warning("http_error", extra={"ticket_id": ticket_id, "error": str(error)})
-            return False
-        except Exception as exc:
-            self.logger.error("post_failed", extra={"ticket_id": ticket_id, "error": str(exc)})
-            return False

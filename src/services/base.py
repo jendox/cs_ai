@@ -11,7 +11,7 @@ __all__ = (
 class Service(ABC):
     def __init__(self, name: str, brand: Brand | str) -> None:
         self.name = name
-        self.brand = brand
+        self.brand = brand if isinstance(brand, Brand) else Brand(brand)
         self.logger = logging.getLogger(name)
 
     @abstractmethod
