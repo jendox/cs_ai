@@ -4,11 +4,11 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from src.admin.services.zendesk import ZendeskAdminService
 from src.db.models import PostChannel, UserRole
-from src.db.repositories import ZendeskRuntimeSettingsRepository
 from src.telegram.context import log_context
-from src.telegram.decorators import with_repository
 from src.telegram.filters import TWO_PARAMS_PARTS_COUNT, RoleRequired
+from src.telegram.handlers.utils import get_telegram_id
 
 logger = logging.getLogger("telegram_admin")
 
@@ -23,13 +23,11 @@ def _format_channel(channel: PostChannel) -> str:
 
 
 @router.message(Command("zendesk_mode"), RoleRequired(UserRole.ADMIN))
-@with_repository(ZendeskRuntimeSettingsRepository)
-async def cmd_zendesk_mode(
-    message: Message,
-    repo: ZendeskRuntimeSettingsRepository,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
-        channel = await repo.get_channel()
+async def cmd_zendesk_mode(message: Message) -> None:
+    async with log_context(telegram_id=get_telegram_id(message)):
+        async with ZendeskAdminService() as service:
+            channel = await service.get_mode()
+
         await message.answer(
             "ℹ️ Текущий режим комментариев в Zendesk:\n\n"
             f"<b>review_mode</b>: <code>{channel.value}</code>\n"
@@ -39,12 +37,8 @@ async def cmd_zendesk_mode(
 
 
 @router.message(Command("zendesk_mode_set"), RoleRequired(UserRole.ADMIN))
-@with_repository(ZendeskRuntimeSettingsRepository)
-async def cmd_zendesk_mode_set(
-    message: Message,
-    repo: ZendeskRuntimeSettingsRepository,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_zendesk_mode_set(message: Message) -> None:
+    async with log_context(telegram_id=get_telegram_id(message)):
         text = (message.text or "").strip()
         parts = text.split()
         if len(parts) < TWO_PARAMS_PARTS_COUNT:
@@ -63,28 +57,11 @@ async def cmd_zendesk_mode_set(
             return
 
         new_channel = PostChannel(raw_mode)
+        updated_by = (message.from_user.username or str(message.from_user.id)) if message.from_user else ""
 
-        current = await repo.get_channel()
-        if current == new_channel:
-            await message.answer(
-                f"ℹ️ Режим уже установлен: <b>{new_channel.value}</b>.",
-            )
-            return
-
-        updated_by = message.from_user.username or str(message.from_user.id)
         try:
-            await repo.set_channel(new_channel, updated_by=updated_by)
-            logger.info(
-                "zendesk_mode_set.success",
-                extra={
-                    "new_channel": new_channel.value,
-                    "updated_by": updated_by,
-                },
-            )
-            await message.answer(
-                "✅ Режим комментариев в Zendesk обновлён:\n\n"
-                f"<b>review_mode</b>: <code>{new_channel.value}</code>",
-            )
+            async with ZendeskAdminService() as service:
+                result = await service.set_mode(new_channel, updated_by=updated_by)
         except Exception as exc:
             logger.error(
                 "zendesk_mode_set.error",
@@ -96,3 +73,22 @@ async def cmd_zendesk_mode_set(
             await message.answer(
                 "⚠️ Ошибка при смене режима комментариев. Подробности в логах.",
             )
+            return
+
+        if not result.changed:
+            await message.answer(
+                f"ℹ️ Режим уже установлен: <b>{new_channel.value}</b>.",
+            )
+            return
+
+        logger.info(
+            "zendesk_mode_set.success",
+            extra={
+                "new_channel": new_channel.value,
+                "updated_by": updated_by,
+            },
+        )
+        await message.answer(
+            "✅ Режим комментариев в Zendesk обновлён:\n\n"
+            f"<b>review_mode</b>: <code>{new_channel.value}</code>",
+        )

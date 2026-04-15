@@ -7,15 +7,15 @@ from typing import Any
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
+from pydantic import ValidationError
 
-from src import datetime_utils
+from src.admin.services import ClassificationSettingsPatch, LLMAdminService, PromptAdminService, ResponseSettingsPatch
 from src.ai.config import RuntimeClassificationSettings, RuntimeResponseSettings
-from src.ai.config.prompt import LLMPrompt, LLMPromptStorage
-from src.ai.context import LLMContext
 from src.db.models import LLMPromptKey, UserRole
 from src.libs.zendesk_client.models import Brand
 from src.telegram.context import log_context
 from src.telegram.filters import THREE_PARAMS_PARTS_COUNT, TWO_PARAMS_PARTS_COUNT, RoleRequired
+from src.telegram.handlers.utils import get_telegram_id
 from src.telegram.prompt_parsing import (
     allowed_brand_tokens,
     allowed_prompt_key_tokens,
@@ -54,19 +54,16 @@ def _format_classification_settings(settings: RuntimeClassificationSettings) -> 
 
 
 @router.message(Command("llm_settings"), RoleRequired(UserRole.USER))
-async def cmd_llm_settings(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
-        response_settings = await llm_context.runtime_storage.get_response()
-        classification_settings = await llm_context.runtime_storage.get_classification()
-        text = (
-            "<b>⚙️ Текущие LLM-настройки</b>\n\n"
-            f"{_format_response_settings(response_settings)}\n"
-            f"{_format_classification_settings(classification_settings)}"
-        )
-        await message.answer(text)
+async def cmd_llm_settings(message: Message) -> None:
+    async with log_context(telegram_id=get_telegram_id(message)):
+        async with LLMAdminService() as service:
+            settings = await service.get_settings()
+            text = (
+                "<b>⚙️ Текущие LLM-настройки</b>\n\n"
+                f"{_format_response_settings(settings.response)}\n"
+                f"{_format_classification_settings(settings.classification)}"
+            )
+            await message.answer(text)
 
 
 def _parse_args(text: str) -> tuple[dict[str, Any], list[str]]:
@@ -115,17 +112,16 @@ def _update_response_settings(params: dict[str, Any]) -> tuple[dict[str, Any] | 
 
 
 @router.message(Command("llm_response_set"), RoleRequired(UserRole.ADMIN))
-async def cmd_llm_response_set(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_llm_response_set(message: Message) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         text = (message.text or "").strip()
         parts = text.split(maxsplit=1)
         if len(parts) < TWO_PARAMS_PARTS_COUNT:
             await message.answer(
                 "Использование:\n"
-                "<code>/llm_response_set temperature=0.3 max_tokens=900 provider=openai model=gpt-5.1</code>",
+                "<code>/llm_response_set temperature=0.3 max_tokens=900 "
+                "provider=google model=gemini-2.5-flash-lite</code>",
             )
             return
 
@@ -141,20 +137,22 @@ async def cmd_llm_response_set(
             return
 
         try:
-            current_settings = await llm_context.runtime_storage.get_response()
-            new_settings = current_settings.model_copy(update=updated_settings)
-        except Exception as exc:
+            patch = ResponseSettingsPatch.model_validate(updated_settings)
+            async with LLMAdminService() as service:
+                new_settings = await service.update_response_settings(patch, updated_by=telegram_id)
+                logger.info(
+                    "llm_response_set.success",
+                    extra={"telegram_id": telegram_id, "updated_settings": updated_settings},
+                )
+                await message.answer(
+                    "✅ Настройки response-модели обновлены:\n\n" + _format_response_settings(new_settings),
+                )
+        except (ValidationError, ValueError) as exc:
             logger.error("llm_response_set.validation_error", extra={"error": str(exc)})
             await message.answer("⚠️ Ошибка валидации настроек. Подробнее в логах.")
-            return
-        await llm_context.runtime_storage.set_response(new_settings, message.from_user.id)
-        logger.info(
-            "llm_response_set.success",
-            extra={"telegram_id": message.from_user.id, "updated_settings": updated_settings},
-        )
-        await message.answer(
-            "✅ Настройки response-модели обновлены:\n\n" + _format_response_settings(new_settings),
-        )
+        except Exception as exc:
+            logger.error("llm_response_set.error", extra={"error": str(exc)})
+            await message.answer("⚠️ Ошибка обновления настроек. Подробнее в логах.")
 
 
 def _enabled_normalized_value(value: str) -> bool:
@@ -213,11 +211,9 @@ def _update_classification_settings(params: dict[str, Any]) -> tuple[dict[str, A
 
 
 @router.message(Command("llm_classification_set"), RoleRequired(UserRole.ADMIN))
-async def cmd_llm_classification_set(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_llm_classification_set(message: Message) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         text = (message.text or "").strip()
         parts = text.split(maxsplit=1)
         if len(parts) < TWO_PARAMS_PARTS_COUNT:
@@ -239,20 +235,22 @@ async def cmd_llm_classification_set(
             return
 
         try:
-            current_settings = await llm_context.runtime_storage.get_classification()
-            new_settings = current_settings.model_copy(update=updated_settings)
-        except Exception as exc:
+            patch = ClassificationSettingsPatch.model_validate(updated_settings)
+            async with LLMAdminService() as service:
+                new_settings = await service.update_classification_settings(patch, updated_by=telegram_id)
+                logger.info(
+                    "llm_classification_set.success",
+                    extra={"telegram_id": telegram_id, "updated_settings": updated_settings},
+                )
+                await message.answer(
+                    "✅ Настройки классификатора обновлены:\n\n" + _format_classification_settings(new_settings),
+                )
+        except (ValidationError, ValueError) as exc:
             logger.error("llm_classification_set.validation_error", extra={"error": str(exc)})
             await message.answer("⚠️ Ошибка валидации настроек. Подробнее в логах.")
-            return
-        await llm_context.runtime_storage.set_classification(new_settings, message.from_user.id)
-        logger.info(
-            "llm_classification_set.success",
-            extra={"telegram_id": message.from_user.id, "updated_settings": updated_settings},
-        )
-        await message.answer(
-            "✅ Настройки классификатора обновлены:\n\n" + _format_classification_settings(new_settings),
-        )
+        except Exception as exc:
+            logger.error("llm_classification_set.error", extra={"error": str(exc)})
+            await message.answer("⚠️ Ошибка обновления настроек. Подробнее в логах.")
 
 
 # =========================
@@ -264,52 +262,41 @@ def _format_date(datetime_: datetime.datetime | None) -> str:
     return datetime_.strftime("%d-%m-%Y %H:%M:%S")
 
 
-async def _load_prompt(
-    prompt_storage: LLMPromptStorage,
-    key: LLMPromptKey,
-    brand: Brand,
-) -> LLMPrompt:
-    if key == LLMPromptKey.INITIAL_REPLY:
-        return await prompt_storage.initial_reply_prompt(brand)
-    if key == LLMPromptKey.FOLLOWUP_REPLY:
-        return await prompt_storage.followup_reply_prompt(brand)
-    if key == LLMPromptKey.CLASSIFICATION:
-        return await prompt_storage.classification_prompt(brand)
-    raise ValueError(f"Unsupported LLMPromptKey: {key}")
-
-
 @router.message(Command("prompts"), RoleRequired(UserRole.USER))
-async def cmd_prompts(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_prompts(message: Message) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         lines: list[str] = ["<b>🧠 LLM промпты</b>", ""]
 
-        for brand in Brand.supported():
-            brand_prompts: list[str] = []
-            for key in LLMPromptKey:
-                prompt = await _load_prompt(llm_context.prompt_storage, key, brand)
-                length = len(prompt.text or "")
-                brand_prompts.append(
-                    f"• <code>{key.value}</code> — len: {length}, "
-                    f"updated_by: <code>{prompt.updated_by}</code>, "
-                    f"updated_at: <code>{_format_date(prompt.updated_at)}</code>",
-                )
-            if brand_prompts:
-                lines.append(f"<b>{brand.name}</b> (id={brand.value})")
-                lines.extend(brand_prompts)
-                lines.append("")
+        async with PromptAdminService() as service:
+            by_brand: dict[Brand, list[LLMPromptKey]] = {}
+            for item in service.list_prompt_keys():
+                by_brand.setdefault(item.brand, []).append(item.key)
+
+            for brand, keys in by_brand.items():
+                brand_prompts: list[str] = []
+
+                for key in keys:
+                    prompt = await service.get_prompt(brand, key)
+                    length = len(prompt.text or "")
+                    brand_prompts.append(
+                        f"• <code>{key.value}</code> — len: {length}, "
+                        f"updated_by: <code>{prompt.updated_by}</code>, "
+                        f"updated_at: <code>{_format_date(prompt.updated_at)}</code>",
+                    )
+
+                if brand_prompts:
+                    lines.append(f"<b>{brand.name}</b> (id={brand.value})")
+                    lines.extend(brand_prompts)
+                    lines.append("")
 
         await message.answer("\n".join(lines) or "Промпты не найдены.")
 
 
 @router.message(Command("prompt_info"), RoleRequired(UserRole.USER))
-async def cmd_prompt_info(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_prompt_info(message: Message) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         text = (message.text or "").strip()
         parts = text.split()
         if len(parts) < THREE_PARAMS_PARTS_COUNT:
@@ -333,7 +320,9 @@ async def cmd_prompt_info(
             await message.answer(error)
             return
 
-        prompt = await _load_prompt(llm_context.prompt_storage, key, brand)
+        async with PromptAdminService() as service:
+            prompt = await service.get_prompt(brand, key)
+
         length = len(prompt.text or "")
 
         await message.answer(
@@ -373,11 +362,9 @@ def _parse_prompt_key_token(token: str) -> tuple[LLMPromptKey | None, str | None
 
 
 @router.message(Command("prompt_export"), RoleRequired(UserRole.USER))
-async def cmd_prompt_export(
-    message: Message,
-    llm_context: LLMContext,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def cmd_prompt_export(message: Message) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         text = (message.text or "").strip()
         parts = text.split()
         if len(parts) < THREE_PARAMS_PARTS_COUNT:
@@ -400,19 +387,16 @@ async def cmd_prompt_export(
             await message.answer(error)
             return
 
-        prompt = await _load_prompt(llm_context.prompt_storage, key, brand)
-        content = (prompt.text or "").encode()
+        async with PromptAdminService() as service:
+            exported = await service.export_prompt(brand, key)
 
-        timestamp = datetime_utils.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"{brand.name.lower()}_{key.value}_{timestamp}.txt"
-
-        document = BufferedInputFile(content, filename=filename)
+        document = BufferedInputFile(exported.content, filename=exported.filename)
 
         await message.answer_document(
             document,
             caption=(
                 f"Промпт для brand={brand.name} key={key.value}\n"
-                f"length={len(prompt.text or '')}, updated_by={prompt.updated_by}"
+                f"length={len(exported.prompt.text or '')}, updated_by={exported.prompt.updated_by}"
             ),
         )
 
@@ -430,12 +414,9 @@ async def cmd_prompt_import_help(message: Message) -> None:
 
 
 @router.message(F.document & F.caption.startswith("/prompt_import"), RoleRequired(UserRole.SUPERADMIN))
-async def handle_prompt_import_document(
-    message: Message,
-    llm_context: LLMContext,
-    bot: Bot,
-) -> None:
-    async with log_context(telegram_id=message.from_user.id):
+async def handle_prompt_import_document(message: Message, bot: Bot) -> None:
+    telegram_id = get_telegram_id(message)
+    async with log_context(telegram_id=telegram_id):
         caption = message.caption or ""
         parts = caption.strip().split()
         if len(parts) < THREE_PARAMS_PARTS_COUNT:
@@ -471,16 +452,21 @@ async def handle_prompt_import_document(
             await message.answer("Не удалось декодировать файл как UTF-8.")
             return
 
-        existing = await _load_prompt(llm_context.prompt_storage, key, brand)
-        existing.text = text
-        existing.updated_by = message.from_user.username or str(message.from_user.id)
-        existing.comment = f"Updated via Telegram by {existing.updated_by}"
+        updated_by = (
+            message.from_user.username or str(message.from_user.id)
+            if message.from_user
+            else str(telegram_id)
+        )
+        comment = f"Updated via Telegram by {updated_by}"
 
-        await llm_context.prompt_storage.save(existing, user_id=message.from_user.id)
+        async with PromptAdminService() as service:
+            await service.import_prompt(
+                brand=brand, key=key, text=text, updated_by=updated_by, comment=comment,
+            )
         logger.info(
             "prompt_import.success",
             extra={
-                "telegram_id": message.from_user.id,
+                "telegram_id": telegram_id,
                 "brand": brand.name,
                 "brand_id": brand.value,
                 "key": key.value,
