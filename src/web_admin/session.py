@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from fastapi.responses import Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from src.config import WebAdminSettings
@@ -94,3 +95,27 @@ class SessionManager:
             return None
 
         return CSRFToken(value=csrf)
+
+    def set_csrf_cookie(self, response: Response, csrf: CreatedCSRFToken) -> None:
+        response.set_cookie(
+            key=self.csrf_cookie_name,
+            value=csrf.signed,
+            max_age=self.max_age_seconds,
+            httponly=True,
+            secure=self.cookie_secure,
+            samesite="lax",
+        )
+
+    def delete_session_cookies(self, response: Response) -> None:
+        response.delete_cookie(
+            key=self.cookie_name,
+            httponly=True,
+            secure=self.cookie_secure,
+            samesite="lax",
+        )
+        response.delete_cookie(
+            key=self.csrf_cookie_name,
+            httponly=True,
+            secure=self.cookie_secure,
+            samesite="lax",
+        )

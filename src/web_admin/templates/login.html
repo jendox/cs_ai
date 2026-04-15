@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Login · CS Admin{% endblock %}
+{% block body_class %}login-page{% endblock %}
+
+{% block body %}
+<main class="login-layout">
+  <section class="login-panel">
+    <div class="login-brand">
+      <div class="brand-mark">CS</div>
+      <div>
+        <h1>Support Admin</h1>
+        <p>Sign in to manage runtime controls.</p>
+      </div>
+    </div>
+
+    {% if error %}
+      <div class="notice error">{{ error }}</div>
+    {% endif %}
+
+    <form class="form" method="post" action="/admin/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="field">
+        <span>Username</span>
+        <input name="username" autocomplete="username" required autofocus>
+      </label>
+
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+
+      <button class="button button-primary" type="submit">Login</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

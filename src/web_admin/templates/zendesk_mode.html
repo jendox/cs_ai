@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Zendesk · CS Admin{% endblock %}
+{% block kicker %}Zendesk{% endblock %}
+{% block page_title %}Comment Mode{% endblock %}
+
+{% block content %}
+<div class="page-grid">
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Current Mode</h2>
+        <p>Controls how generated replies are posted to Zendesk.</p>
+      </div>
+      <span class="status-pill {{ channel.value }}">
+        {{ channel.value }}
+      </span>
+    </div>
+
+    <div class="mode-readout">
+      {% if channel.value == "internal" %}
+        <strong>Internal notes</strong>
+        <span>AI replies are posted as private notes for review.</span>
+      {% else %}
+        <strong>Public comments</strong>
+        <span>AI replies are visible to customers.</span>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Change Mode</h2>
+        <p>Switch only when the team is ready for the selected posting behavior.</p>
+      </div>
+    </div>
+
+    <form class="form" method="post" action="/admin/zendesk/mode">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="radio-row">
+        <input type="radio" name="mode" value="internal" {% if channel.value == "internal" %}checked{% endif %}>
+        <span>
+          <strong>Internal</strong>
+          <small>Post generated replies as private Zendesk notes.</small>
+        </span>
+      </label>
+
+      <label class="radio-row danger">
+        <input type="radio" name="mode" value="public" {% if channel.value == "public" %}checked{% endif %}>
+        <span>
+          <strong>Public</strong>
+          <small>Post generated replies as customer-visible comments.</small>
+        </span>
+      </label>
+
+      <button class="button button-primary" type="submit">Save Mode</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
