@@ -8,6 +8,7 @@ from .reply_attempts import (
     ReplyAttemptCreate,
     ReplyAttemptFilters,
     ReplyAttemptListResult,
+    ReplyAttemptSummary,
     TicketReplyAttemptNotFound,
     TicketReplyAttemptsRepository,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "TicketReplyAttemptsRepository",
     "ReplyAttemptFilters",
     "ReplyAttemptListResult",
+    "ReplyAttemptSummary",
     "TicketNotFound",
     "TicketsRepository",
     "ZendeskRuntimeSettingsRepository",

@@ -298,6 +298,7 @@ async def get_replies(  # noqa: PLR0913, PLR0917
             limit=limit,
             offset=offset,
         )
+        summary = await repo.get_summary(filters=filters)
 
     csrf = session_manager.create_csrf_token()
     response = templates.TemplateResponse(
@@ -308,6 +309,7 @@ async def get_replies(  # noqa: PLR0913, PLR0917
             "current_user": user,
             "csrf_token": csrf.raw,
             "result": result,
+            "summary": summary,
             "selected_ticket_id": ticket_id or "",
             "selected_status": status or "",
             "selected_job_type": job_type or "",

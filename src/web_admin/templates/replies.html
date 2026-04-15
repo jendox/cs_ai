@@ -13,6 +13,37 @@
     </div>
   </div>
 
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <span class="meta-label">Total</span>
+      <strong>{{ summary.total }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Generated</span>
+      <strong>{{ summary.generated_count }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Posted</span>
+      <strong>{{ summary.posted_count }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Failed</span>
+      <strong>{{ summary.failed_count }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Empty</span>
+      <strong>{{ summary.empty_count }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Duplicates</span>
+      <strong>{{ summary.duplicate_count }}</strong>
+    </div>
+    <div class="metric-card">
+      <span class="meta-label">Success Rate</span>
+      <strong>{{ "%.1f"|format(summary.success_rate) }}%</strong>
+    </div>
+  </div>
+
   <form class="form filters-form" method="get" action="/admin/replies">
     <label class="field">
       <span>Ticket ID</span>
