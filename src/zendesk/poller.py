@@ -23,7 +23,7 @@ from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 from src.logs.filters import log_ctx
 from src.services import Service
 
-from .models import Event, EventAuthorRole, EventKind, EventSourceType
+from .models import Event, EventAuthorRole, EventKind, EventSourceType, comment_to_event
 
 EVENTS_SAFETY_BACKSHIFT_MIN = 5
 # запрос должен быть старше чем now-60s (400 StartTimeToRecent)
@@ -146,17 +146,7 @@ class Poller(Service):
         for comment in comments:
             if not comment.created_at or comment.created_at <= updated_after:
                 continue
-            yield Event(
-                ticket_id=ticket_id,
-                source_type=EventSourceType.COMMENT,
-                source_id=str(comment.id),
-                kind=EventKind.COMMENT_PUBLIC if comment.public else EventKind.COMMENT_PRIVATE,
-                author_id=comment.author_id,
-                is_private=False if comment.public else True,
-                body=comment.body,
-                created_at=comment.created_at,
-                inserted_at=datetime_utils.utcnow(),
-            )
+            yield comment_to_event(ticket_id, comment)
 
     async def _iter_events(
         self,

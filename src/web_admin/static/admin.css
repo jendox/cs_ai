@@ -232,6 +232,13 @@ h2 {
   line-height: 1.5;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -917,11 +924,14 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .timeline-comment.public,
+.timeline-event.comment_public,
 .timeline-attempt.posted {
   border-left-color: #2f7d52;
 }
 
 .timeline-comment.internal,
+.timeline-event.comment_private,
+.timeline-event.status_change,
 .timeline-attempt.generated,
 .timeline-attempt.empty_reply {
   border-left-color: #667085;

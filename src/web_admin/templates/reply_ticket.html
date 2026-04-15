@@ -11,7 +11,13 @@
       <h2>Ticket Summary</h2>
       <p>Zendesk conversation and generated reply attempts.</p>
     </div>
-    <a class="button button-secondary" href="/admin/replies">Back to Replies</a>
+    <div class="section-actions">
+      <form method="post" action="/admin/replies/tickets/{{ ticket_id }}/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button button-primary" type="submit">Refresh from Zendesk</button>
+      </form>
+      <a class="button button-secondary" href="/admin/replies">Back to Replies</a>
+    </div>
   </div>
 
   <div class="summary-grid">
@@ -36,6 +42,10 @@
       <strong>{{ comments|length }}</strong>
     </div>
     <div>
+      <span class="meta-label">Stored Events</span>
+      <strong>{{ events|length }}</strong>
+    </div>
+    <div>
       <span class="meta-label">Reply Attempts</span>
       <strong>{{ attempts|length }}</strong>
     </div>
@@ -52,6 +62,8 @@
 
   {% if comments_error %}
     <div class="notice error">Zendesk comments could not be loaded: {{ comments_error }}</div>
+  {% elif comments_source == "zendesk_fallback" %}
+    <div class="notice success">Local comments are empty. Showing live Zendesk comments as fallback.</div>
   {% endif %}
 
   <div class="timeline">

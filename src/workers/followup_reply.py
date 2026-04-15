@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ from src.ai.reply_generator import LLMReplyGenerator
 from src.db import session_local
 from src.db.models import LLMPromptKey
 from src.db.repositories import (
+    EventsRepository,
     OurPostsRepository,
     TicketNotFound,
     TicketReplyAttemptsRepository,
@@ -17,9 +19,10 @@ from src.db.repositories import (
 from src.jobs.models import JobType, UserReplyMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import AGENT_IDS, Brand
+from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment
 from src.services import Service
 from src.workers.reply_posting import ReplyPostingContext, ReplyPostingService
+from src.zendesk.models import comment_to_event
 
 from .log_context import log_context
 
@@ -58,6 +61,7 @@ class FollowUpReplyWorker(Service):
         async with (log_context(ticket_id, self.brand, iteration_id, JobType.FOLLOWUP_REPLY)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
+                events_repo = EventsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
                 reply_attempts_repo = TicketReplyAttemptsRepository(session)
                 zendesk_repo = ZendeskRuntimeSettingsRepository(session)
@@ -79,7 +83,7 @@ class FollowUpReplyWorker(Service):
                         return True
 
                     channel = await zendesk_repo.get_channel()
-                    reply = await self._generate_followup_reply(ticket_id)
+                    reply = await self._generate_followup_reply(ticket_id, events_repo)
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket_id,
@@ -99,9 +103,9 @@ class FollowUpReplyWorker(Service):
             self.logger.error("payload.validation.error", extra={"error": str(error)})
             return None
 
-    async def _generate_followup_reply(self, ticket_id: int) -> str:
+    async def _generate_followup_reply(self, ticket_id: int, events_repo: EventsRepository) -> str:
         try:
-            messages = await self._build_conversation_messages(ticket_id)
+            messages = await self._build_conversation_messages(ticket_id, events_repo)
             if not messages:
                 self.logger.warning("conversation.empty")
                 return ""
@@ -120,11 +124,16 @@ class FollowUpReplyWorker(Service):
             self.logger.warning("ai.generate_failed", extra={"error": str(exc)})
             return ""
 
-    async def _build_conversation_messages(self, ticket_id: int) -> list[dict[str, Any]]:
+    async def _build_conversation_messages(
+        self,
+        ticket_id: int,
+        events_repo: EventsRepository,
+    ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         comments = await self._zendesk_client.get_ticket_comments(ticket_id)
+        await self._store_comments(events_repo, ticket_id, comments)
 
-        for comment in sorted(comments, key=lambda x: x.created_at):
+        for comment in sorted(comments, key=self._comment_created_at):
             if not comment.public:
                 continue
             body = (comment.body or "").strip()
@@ -134,3 +143,22 @@ class FollowUpReplyWorker(Service):
             messages.append({"role": role, "content": body})
 
         return messages
+
+    async def _store_comments(
+        self,
+        events_repo: EventsRepository,
+        ticket_id: int,
+        comments: list[Comment],
+    ) -> None:
+        inserted_count = 0
+        for comment in comments:
+            if comment.id is None or comment.created_at is None:
+                continue
+            if await events_repo.insert_event(comment_to_event(ticket_id, comment)):
+                inserted_count += 1
+        if inserted_count:
+            self.logger.info("comments.stored", extra={"count": inserted_count})
+
+    @staticmethod
+    def _comment_created_at(comment: Comment) -> datetime:
+        return comment.created_at or datetime.min.replace(tzinfo=UTC)

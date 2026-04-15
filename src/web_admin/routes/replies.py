@@ -5,32 +5,49 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import RedirectResponse
 
 from src import config
 from src.db import session_local
 from src.db.models import (
     AdminUser as AdminUserEntity,
+    Event as EventEntity,
     ReplyAttemptStatus,
     TicketReplyAttempt as TicketReplyAttemptEntity,
     UserRole,
 )
-from src.db.repositories import ReplyAttemptFilters, TicketNotFound, TicketReplyAttemptsRepository, TicketsRepository
+from src.db.repositories import (
+    EventsRepository,
+    ReplyAttemptFilters,
+    TicketNotFound,
+    TicketReplyAttemptsRepository,
+    TicketsRepository,
+)
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
 from src.libs.zendesk_client.models import Brand, Comment
-from src.web_admin.dependencies import get_session_manager, require_role
+from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
+from src.zendesk.models import comment_to_event
 
 router = APIRouter(prefix="/replies", tags=["replies"])
 
 DEFAULT_LIMIT = 50
 
+TICKET_SAVED_MESSAGES: dict[str, str] = {
+    "refresh": "Zendesk comments refreshed.",
+}
+TICKET_ERROR_MESSAGES: dict[str, str] = {
+    "refresh": "Zendesk comments could not be refreshed.",
+    "ticket_not_found": "Ticket is not stored locally yet, so comments cannot be saved.",
+}
+
 
 @dataclass(frozen=True)
 class TicketTimelineItem:
-    kind: Literal["comment", "attempt"]
+    kind: Literal["event", "comment", "attempt"]
     created_at: datetime
     title: str
     badge: str
@@ -80,6 +97,10 @@ def _comment_created_at(comment: Comment) -> datetime:
     return comment.created_at or datetime.min.replace(tzinfo=UTC)
 
 
+def _event_created_at(event: EventEntity) -> datetime:
+    return event.created_at or datetime.min.replace(tzinfo=UTC)
+
+
 async def _load_zendesk_comments(ticket_id: int) -> tuple[list[Comment], str | None]:
     settings = config.app_settings.get()
     try:
@@ -87,6 +108,61 @@ async def _load_zendesk_comments(ticket_id: int) -> tuple[list[Comment], str | N
             return await client.get_ticket_comments(ticket_id), None
     except (ZendeskClientError, httpx.HTTPError) as error:
         return [], str(error)
+
+
+async def _store_zendesk_comments(ticket_id: int, comments: list[Comment]) -> int:
+    inserted_count = 0
+    async with session_local() as session:
+        async with session.begin():
+            events_repo = EventsRepository(session)
+            for comment in comments:
+                if comment.id is None or comment.created_at is None:
+                    continue
+                if await events_repo.insert_event(comment_to_event(ticket_id, comment)):
+                    inserted_count += 1
+    return inserted_count
+
+
+async def _refresh_zendesk_comments(ticket_id: int) -> tuple[int, str | None]:
+    comments, error = await _load_zendesk_comments(ticket_id)
+    if error is not None:
+        return 0, error
+    return await _store_zendesk_comments(ticket_id, comments), None
+
+
+def _ticket_flash(
+    *,
+    saved: str | None,
+    error: str | None,
+    count: int | None,
+) -> dict[str, str] | None:
+    if saved in TICKET_SAVED_MESSAGES:
+        message = TICKET_SAVED_MESSAGES[saved]
+        if count is not None:
+            message = f"{message} Stored {count} new comments."
+        return {"kind": "success", "message": message}
+    if error in TICKET_ERROR_MESSAGES:
+        return {"kind": "error", "message": TICKET_ERROR_MESSAGES[error]}
+    return None
+
+
+def _build_event_timeline_item(event: EventEntity) -> TicketTimelineItem:
+    is_comment = event.source_type == "comment"
+    title = "Zendesk Comment" if is_comment else "Zendesk Event"
+    meta = [
+        f"Author {event.author_id}" if event.author_id else None,
+        event.author_role,
+        f"#{event.source_id}" if is_comment and event.source_id else None,
+    ]
+    return TicketTimelineItem(
+        kind="event",
+        created_at=_event_created_at(event),
+        title=title,
+        badge=event.kind,
+        badge_class=event.kind,
+        body=event.body,
+        meta=tuple(item for item in meta if item),
+    )
 
 
 def _build_comment_timeline_item(comment: Comment) -> TicketTimelineItem:
@@ -128,11 +204,13 @@ def _build_attempt_timeline_item(attempt: TicketReplyAttemptEntity) -> TicketTim
 
 def _build_ticket_timeline(
     *,
-    comments: list[Comment],
+    events: list[EventEntity],
+    fallback_comments: list[Comment],
     attempts: list[TicketReplyAttemptEntity],
 ) -> list[TicketTimelineItem]:
     items = [
-        *(_build_comment_timeline_item(comment) for comment in comments),
+        *(_build_event_timeline_item(event) for event in events),
+        *(_build_comment_timeline_item(comment) for comment in fallback_comments),
         *(_build_attempt_timeline_item(attempt) for attempt in attempts),
     ]
     return sorted(items, key=lambda item: item.created_at)
@@ -195,14 +273,18 @@ async def get_replies(  # noqa: PLR0913, PLR0917
 
 
 @router.get("/tickets/{ticket_id}")
-async def get_ticket_replies(
+async def get_ticket_replies(  # noqa: PLR0913, PLR0917
     ticket_id: int,
     request: Request,
     user: Annotated[AdminUserEntity, Depends(require_role(UserRole.USER))],
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    saved: str | None = None,
+    error: str | None = None,
+    count: int | None = None,
 ) -> Response:
     async with session_local() as session:
         tickets_repo = TicketsRepository(session)
+        events_repo = EventsRepository(session)
         attempts_repo = TicketReplyAttemptsRepository(session)
 
         try:
@@ -210,10 +292,22 @@ async def get_ticket_replies(
         except TicketNotFound:
             ticket = None
 
+        events = await events_repo.list_by_ticket(ticket_id)
+        comment_events = [event for event in events if event.source_type == "comment"]
         attempts = await attempts_repo.list_by_ticket(ticket_id)
 
-    comments, comments_error = await _load_zendesk_comments(ticket_id)
-    timeline_items = _build_ticket_timeline(comments=comments, attempts=attempts)
+    fallback_comments: list[Comment] = []
+    comments_error = None
+    comments_source = "local"
+    if not comment_events:
+        fallback_comments, comments_error = await _load_zendesk_comments(ticket_id)
+        comments_source = "zendesk_fallback"
+
+    timeline_items = _build_ticket_timeline(
+        events=events,
+        fallback_comments=fallback_comments,
+        attempts=attempts,
+    )
 
     csrf = session_manager.create_csrf_token()
     response = templates.TemplateResponse(
@@ -225,12 +319,45 @@ async def get_ticket_replies(
             "csrf_token": csrf.raw,
             "ticket_id": ticket_id,
             "ticket": ticket,
+            "events": events,
             "attempts": attempts,
-            "comments": comments,
+            "comments": comment_events or fallback_comments,
+            "comments_source": comments_source,
             "timeline_items": timeline_items,
             "comments_error": comments_error,
-            "flash": None,
+            "flash": _ticket_flash(saved=saved, error=error, count=count),
         },
     )
     session_manager.set_csrf_cookie(response, csrf)
     return response
+
+
+@router.post("/tickets/{ticket_id}/refresh")
+async def refresh_ticket_comments(
+    ticket_id: int,
+    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.USER))],
+    _: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    del user
+
+    async with session_local() as session:
+        tickets_repo = TicketsRepository(session)
+        try:
+            await tickets_repo.get_ticket_by_id(ticket_id)
+        except TicketNotFound:
+            return RedirectResponse(
+                url=f"/admin/replies/tickets/{ticket_id}?error=ticket_not_found",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+    count, refresh_error = await _refresh_zendesk_comments(ticket_id)
+    if refresh_error is not None:
+        return RedirectResponse(
+            url=f"/admin/replies/tickets/{ticket_id}?error=refresh",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return RedirectResponse(
+        url=f"/admin/replies/tickets/{ticket_id}?saved=refresh&count={count}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )

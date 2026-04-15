@@ -9,6 +9,7 @@ from pydantic import BaseModel, BeforeValidator, model_validator
 from src import datetime_utils
 from src.libs.zendesk_client.models import (
     AGENT_IDS,
+    Comment,
     OptionalDatetime,
     OptionalInt,
     OptionalStr,
@@ -90,3 +91,17 @@ class Event(BaseModel):
             f"{self.ticket_id}:{self.source_type.value}:{self.source_id}",
         )
         return self
+
+
+def comment_to_event(ticket_id: int, comment: Comment) -> Event:
+    return Event(
+        ticket_id=ticket_id,
+        source_type=EventSourceType.COMMENT,
+        source_id=str(comment.id),
+        kind=EventKind.COMMENT_PUBLIC if comment.public else EventKind.COMMENT_PRIVATE,
+        author_id=comment.author_id,
+        is_private=False if comment.public else True,
+        body=comment.body,
+        created_at=comment.created_at,
+        inserted_at=datetime_utils.utcnow(),
+    )
