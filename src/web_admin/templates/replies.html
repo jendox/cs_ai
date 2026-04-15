@@ -160,7 +160,7 @@
           <tr>
             <td>{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "-" }}</td>
             <td>
-              <a class="table-link" href="/admin/replies/tickets/{{ item.ticket_id }}">
+              <a class="table-link" href="/admin/tickets/{{ item.ticket_id }}">
                 <strong>{{ item.ticket_id }}</strong>
               </a>
               {% if item.iteration_id %}

@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Ticket {{ ticket_id }} · CS Admin{% endblock %}
+{% block kicker %}Operations{% endblock %}
+{% block page_title %}Ticket {{ ticket_id }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Ticket Summary</h2>
+      <p>Zendesk conversation and generated reply attempts.</p>
+    </div>
+    <div class="section-actions">
+      <form method="post" action="/admin/tickets/{{ ticket_id }}/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button button-primary" type="submit">Refresh from Zendesk</button>
+      </form>
+      <a class="button button-secondary" href="/admin/tickets">Back to Tickets</a>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div>
+      <span class="meta-label">Status</span>
+      <strong>{{ ticket.status if ticket else "unknown" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Brand</span>
+      <strong>{{ ticket.brand_id if ticket else "-" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Observing</span>
+      <strong>{{ "yes" if ticket and ticket.observing else "no" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Last Seen</span>
+      <strong>{{ ticket.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if ticket and ticket.last_seen_at else "-" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Zendesk Comments</span>
+      <strong>{{ comments|length }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Stored Events</span>
+      <strong>{{ events|length }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Reply Attempts</span>
+      <strong>{{ attempts|length }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Conversation Timeline</h2>
+      <p>Zendesk comments and generated reply attempts in chronological order.</p>
+    </div>
+  </div>
+
+  {% if comments_error %}
+    <div class="notice error">Zendesk comments could not be loaded: {{ comments_error }}</div>
+  {% elif comments_source == "zendesk_fallback" %}
+    <div class="notice success">Local comments are empty. Showing live Zendesk comments as fallback.</div>
+  {% endif %}
+
+  <div class="timeline">
+    {% for item in timeline_items %}
+      <article class="timeline-item timeline-{{ item.kind }} timeline-actor-{{ item.actor_class }} {{ item.badge_class }}">
+        <div class="timeline-heading">
+          <div class="timeline-actor" aria-hidden="true">{{ item.actor_label[:1] }}</div>
+          <div class="timeline-header-content">
+            <div class="timeline-title-row">
+              <strong>{{ item.title }}</strong>
+              <span class="timeline-actor-label {{ item.actor_class }}">{{ item.actor_label }}</span>
+              <span class="status-pill {{ item.badge_class }}">{{ item.badge }}</span>
+            </div>
+            <div class="timeline-meta">
+              <span>{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span>
+              {% for meta in item.meta %}
+                <span>{{ meta }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        {% if item.body %}
+          <div class="timeline-body">{{ item.body }}</div>
+        {% endif %}
+
+        {% if item.error %}
+          <div class="notice error">{{ item.error }}</div>
+        {% endif %}
+      </article>
+    {% else %}
+      <p class="empty-state">No timeline events found.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Bot Attempts</h2>
+      <p>Generated replies, Zendesk posting results, model, and errors.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table ticket-attempts-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Channel</th>
+          <th>Model</th>
+          <th>Zendesk Comment</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for attempt in attempts %}
+          <tr>
+            <td>{{ attempt.created_at.strftime("%Y-%m-%d %H:%M:%S") if attempt.created_at else "-" }}</td>
+            <td>{{ attempt.job_type }}</td>
+            <td>
+              <span class="status-pill {{ attempt.status.value }}">{{ attempt.status.value }}</span>
+            </td>
+            <td>{{ attempt.channel.value }}</td>
+            <td>
+              {% if attempt.model %}
+                <strong>{{ attempt.model }}</strong>
+                {% if attempt.provider %}
+                  <small>{{ attempt.provider }}</small>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ attempt.zendesk_comment_id if attempt.zendesk_comment_id else "-" }}</td>
+            <td>
+              {% if attempt.error %}
+                <small>{{ attempt.error }}</small>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7">No bot attempts found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

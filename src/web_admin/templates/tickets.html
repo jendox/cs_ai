@@ -85,7 +85,7 @@
         {% for item in result.items %}
           <tr>
             <td>
-              <a class="table-link" href="/admin/replies/tickets/{{ item.ticket.ticket_id }}">
+              <a class="table-link" href="/admin/tickets/{{ item.ticket.ticket_id }}">
                 <strong>{{ item.ticket.ticket_id }}</strong>
               </a>
             </td>
@@ -103,7 +103,7 @@
             <td>{{ item.ticket.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.updated_at else "-" }}</td>
             <td>{{ item.ticket.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.last_seen_at else "-" }}</td>
             <td>
-              <a class="button button-secondary table-button" href="/admin/replies/tickets/{{ item.ticket.ticket_id }}">Open</a>
+              <a class="button button-secondary table-button" href="/admin/tickets/{{ item.ticket.ticket_id }}">Open</a>
             </td>
           </tr>
         {% else %}
