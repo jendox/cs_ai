@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import secrets
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Form, HTTPException, Request, status
 
 from src import config
 from src.db import session_local
@@ -65,3 +66,35 @@ def require_role(required: UserRole):
         return user
 
     return dependency
+
+
+def require_csrf(
+    request: Request,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    csrf_token: Annotated[str | None, Form()] = None,
+) -> None:
+    if not csrf_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing CSRF token",
+        )
+
+    cookie_value = request.cookies.get(session_manager.csrf_cookie_name)
+    if not cookie_value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing CSRF cookie",
+        )
+
+    cookie_token = session_manager.load_csrf_token(cookie_value)
+    if cookie_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF cookie",
+        )
+
+    if not secrets.compare_digest(cookie_token.value, csrf_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+        )

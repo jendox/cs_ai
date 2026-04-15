@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.db import session_local
 from src.db.repositories import AdminUserNotFound, AdminUsersRepository
-from src.web_admin.dependencies import get_session_manager
+from src.web_admin.dependencies import get_session_manager, require_csrf
 from src.web_admin.security import verify_password
 from src.web_admin.session import SessionManager
 
@@ -15,21 +15,34 @@ router = APIRouter(tags=["auth"])
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page() -> str:
-    return """
+async def login_page(
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+) -> Response:
+    csrf = session_manager.create_csrf_token()
+    response = HTMLResponse(f"""
         <!doctype html>
         <html>
           <head><title>CS Admin Login</title></head>
           <body>
             <h1>CS Admin</h1>
             <form method="post" action="/admin/login">
+              <input type="hidden" name="csrf_token" value="{csrf.raw}" />
               <label>Username <input name="username" autocomplete="username"></label><br>
               <label>Password <input name="password" type="password" autocomplete="current-password"></label><br>
               <button type="submit">Login</button>
             </form>
           </body>
         </html>
-        """
+        """)
+    response.set_cookie(
+        key=session_manager.csrf_cookie_name,
+        value=csrf.signed,
+        max_age=session_manager.max_age_seconds,
+        httponly=True,
+        secure=session_manager.cookie_secure,
+        samesite="lax",
+    )
+    return response
 
 
 @router.post("/login")
@@ -37,6 +50,7 @@ async def login(
     username: Annotated[str, Form()],
     password: Annotated[str, Form()],
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    _: Annotated[None, Depends(require_csrf)],
 ) -> Response:
     async with session_local() as session:
         async with session.begin():
@@ -82,6 +96,7 @@ async def login(
 @router.post("/logout")
 async def logout(
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    _: Annotated[None, Depends(require_csrf)],
 ) -> Response:
     response = RedirectResponse(
         url="/admin/login",
@@ -89,6 +104,12 @@ async def logout(
     )
     response.delete_cookie(
         key=session_manager.cookie_name,
+        httponly=True,
+        secure=session_manager.cookie_secure,
+        samesite="lax",
+    )
+    response.delete_cookie(
+        key=session_manager.csrf_cookie_name,
         httponly=True,
         secure=session_manager.cookie_secure,
         samesite="lax",
