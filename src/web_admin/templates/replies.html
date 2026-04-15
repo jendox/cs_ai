@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Replies · CS Admin{% endblock %}
+{% block kicker %}Operations{% endblock %}
+{% block page_title %}Replies{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Reply Attempts</h2>
+      <p>Generated, posted, failed, and skipped replies.</p>
+    </div>
+  </div>
+
+  <form class="form filters-form" method="get" action="/admin/replies">
+    <label class="field">
+      <span>Ticket ID</span>
+      <input name="ticket_id" type="text" inputmode="numeric" value="{{ selected_ticket_id }}">
+    </label>
+
+    <label class="field">
+      <span>Status</span>
+      <select name="status">
+        <option value="">Any</option>
+        {% for item in statuses %}
+          <option value="{{ item.value }}" {% if selected_status == item.value %}selected{% endif %}>
+            {{ item.value }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Job Type</span>
+      <select name="job_type">
+        <option value="">Any</option>
+        {% for item in job_types %}
+          <option value="{{ item.value }}" {% if selected_job_type == item.value %}selected{% endif %}>
+            {{ item.value }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Brand</span>
+      <select name="brand">
+        <option value="">Any</option>
+        {% for item in brands %}
+          <option value="{{ item.value }}" {% if selected_brand == item.value|string %}selected{% endif %}>
+            {{ item.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <input type="hidden" name="limit" value="{{ limit }}">
+    <button class="button button-primary" type="submit">Apply</button>
+    <a class="button button-secondary" href="/admin/replies">Reset</a>
+  </form>
+
+  <div class="table-wrap">
+    <table class="data-table replies-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Ticket</th>
+          <th>Brand</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Channel</th>
+          <th>Model</th>
+          <th>Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in result.items %}
+          <tr>
+            <td>{{ item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "-" }}</td>
+            <td>
+              <strong>{{ item.ticket_id }}</strong>
+              {% if item.iteration_id %}
+                <small>{{ item.iteration_id }}</small>
+              {% endif %}
+            </td>
+            <td>{{ item.brand_id }}</td>
+            <td>{{ item.job_type }}</td>
+            <td>
+              <span class="status-pill {{ item.status.value }}">{{ item.status.value }}</span>
+            </td>
+            <td>{{ item.channel.value }}</td>
+            <td>
+              {% if item.model %}
+                <strong>{{ item.model }}</strong>
+                {% if item.provider %}
+                  <small>{{ item.provider }}</small>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if item.zendesk_comment_id %}
+                {{ item.zendesk_comment_id }}
+              {% elif item.error %}
+                <small>{{ item.error }}</small>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8">No reply attempts found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    <div>
+      Showing {{ result.items|length }} of {{ result.total }}
+    </div>
+    <div class="pagination-actions">
+      {% if has_prev %}
+        <a class="button button-secondary" href="/admin/replies?ticket_id={{ selected_ticket_id }}&status={{ selected_status }}&job_type={{ selected_job_type }}&brand={{ selected_brand }}&limit={{ limit }}&offset={{ prev_offset }}">Previous</a>
+      {% else %}
+        <button class="button button-secondary" type="button" disabled>Previous</button>
+      {% endif %}
+
+      {% if has_next %}
+        <a class="button button-secondary" href="/admin/replies?ticket_id={{ selected_ticket_id }}&status={{ selected_status }}&job_type={{ selected_job_type }}&brand={{ selected_brand }}&limit={{ limit }}&offset={{ next_offset }}">Next</a>
+      {% else %}
+        <button class="button button-secondary" type="button" disabled>Next</button>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

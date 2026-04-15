@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import desc, select
+from sqlalchemy import ColumnElement, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
@@ -12,8 +12,11 @@ from src.db.models import (
     TicketReplyAttempt as TicketReplyAttemptEntity,
 )
 from src.db.repositories.base import BaseRepository
+from src.jobs.models import JobType
+from src.libs.zendesk_client.models import Brand
 
 RECENT_REPLY_ATTEMPT_LIMIT = 50
+MAX_REPLY_ATTEMPT_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,22 @@ class ReplyAttemptCreate:
     model: str | None = None
     prompt_key: str | None = None
     iteration_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ReplyAttemptFilters:
+    ticket_id: int | None = None
+    status: ReplyAttemptStatus | None = None
+    job_type: JobType | None = None
+    brand: Brand | None = None
+
+
+@dataclass(frozen=True)
+class ReplyAttemptListResult:
+    items: list[TicketReplyAttemptEntity]
+    total: int
+    limit: int
+    offset: int
 
 
 class TicketReplyAttemptNotFound(Exception): ...
@@ -121,3 +140,54 @@ class TicketReplyAttemptsRepository(BaseRepository):
         if entity is None:
             raise TicketReplyAttemptNotFound(f"Ticket reply attempt {attempt_id} not found.")
         return entity
+
+    @staticmethod
+    def _attempt_filter_conditions(filters: ReplyAttemptFilters | None) -> list[ColumnElement[bool]]:
+        if filters is None:
+            return []
+
+        conditions: list[ColumnElement[bool]] = []
+        if filters.ticket_id is not None:
+            conditions.append(TicketReplyAttemptEntity.ticket_id == filters.ticket_id)
+        if filters.status is not None:
+            conditions.append(TicketReplyAttemptEntity.status == filters.status)
+        if filters.job_type is not None:
+            conditions.append(TicketReplyAttemptEntity.job_type == filters.job_type.value)
+        if filters.brand is not None:
+            conditions.append(TicketReplyAttemptEntity.brand_id == filters.brand.value)
+
+        return conditions
+
+    async def list_attempts(
+        self,
+        *,
+        filters: ReplyAttemptFilters | None = None,
+        limit: int = RECENT_REPLY_ATTEMPT_LIMIT,
+        offset: int = 0,
+    ) -> ReplyAttemptListResult:
+        limit = min(max(limit, 1), MAX_REPLY_ATTEMPT_LIMIT)
+        offset = max(offset, 0)
+        conditions = self._attempt_filter_conditions(filters)
+
+        total_stmt = select(func.count()).select_from(TicketReplyAttemptEntity)
+        if conditions:
+            total_stmt = total_stmt.where(*conditions)
+
+        items_stmt = (
+            select(TicketReplyAttemptEntity)
+            .order_by(desc(TicketReplyAttemptEntity.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        if conditions:
+            items_stmt = items_stmt.where(*conditions)
+
+        total = await self._session.scalar(total_stmt)
+        items = list(await self._session.scalars(items_stmt))
+
+        return ReplyAttemptListResult(
+            items=items,
+            total=total or 0,
+            limit=limit,
+            offset=offset,
+        )

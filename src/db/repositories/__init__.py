@@ -4,7 +4,13 @@ from .events import EventsRepository
 from .filter_rule import TicketsFilterRuleRepository
 from .locks import AcquireLockError, LocksRepository
 from .our_posts import OurPostsRepository
-from .reply_attempts import ReplyAttemptCreate, TicketReplyAttemptNotFound, TicketReplyAttemptsRepository
+from .reply_attempts import (
+    ReplyAttemptCreate,
+    ReplyAttemptFilters,
+    ReplyAttemptListResult,
+    TicketReplyAttemptNotFound,
+    TicketReplyAttemptsRepository,
+)
 from .tickets import TicketNotFound, TicketsRepository
 from .zendesk_settings import ZendeskRuntimeSettingsRepository
 
@@ -20,6 +26,8 @@ __all__ = [
     "ReplyAttemptCreate",
     "TicketReplyAttemptNotFound",
     "TicketReplyAttemptsRepository",
+    "ReplyAttemptFilters",
+    "ReplyAttemptListResult",
     "TicketNotFound",
     "TicketsRepository",
     "ZendeskRuntimeSettingsRepository",
