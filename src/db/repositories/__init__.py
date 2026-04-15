@@ -13,7 +13,7 @@ from .reply_attempts import (
     TicketReplyAttemptNotFound,
     TicketReplyAttemptsRepository,
 )
-from .tickets import TicketNotFound, TicketsRepository
+from .tickets import TicketFilters, TicketListResult, TicketNotFound, TicketsRepository
 from .zendesk_settings import ZendeskRuntimeSettingsRepository
 
 __all__ = [
@@ -32,6 +32,8 @@ __all__ = [
     "ReplyAttemptFilters",
     "ReplyAttemptListResult",
     "ReplyAttemptSummary",
+    "TicketFilters",
+    "TicketListResult",
     "TicketNotFound",
     "TicketsRepository",
     "ZendeskRuntimeSettingsRepository",

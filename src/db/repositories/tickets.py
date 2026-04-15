@@ -1,20 +1,41 @@
+from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import case, literal, select, update
+from sqlalchemy import ColumnElement, String, case, desc, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
 from src.db.models import Ticket as TicketEntity
 from src.db.repositories.base import BaseRepository
-from src.libs.zendesk_client.models import Ticket
+from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 
 __all__ = (
+    "TicketFilters",
+    "TicketListResult",
     "TicketNotFound",
     "TicketsRepository",
 )
 
 MAX_ACTIVE_TICKETS_LIMIT = 20
+RECENT_TICKETS_LIMIT = 50
+MAX_TICKETS_LIMIT = 100
+
+
+@dataclass(frozen=True)
+class TicketFilters:
+    ticket_id_prefix: str | None = None
+    status: TicketStatus | None = None
+    brand: Brand | None = None
+    observing: bool | None = None
+
+
+@dataclass(frozen=True)
+class TicketListResult:
+    items: list[TicketEntity]
+    total: int
+    limit: int
+    offset: int
 
 
 class TicketNotFound(Exception): ...
@@ -90,6 +111,55 @@ class TicketsRepository(BaseRepository):
     async def get_ticket_status(self, ticket_id: int) -> str:
         ticket = await self.get_ticket_by_id(ticket_id)
         return ticket.status
+
+    @staticmethod
+    def _ticket_filter_conditions(filters: TicketFilters | None) -> list[ColumnElement[bool]]:
+        if filters is None:
+            return []
+
+        conditions: list[ColumnElement[bool]] = []
+        if filters.ticket_id_prefix is not None:
+            conditions.append(TicketEntity.ticket_id.cast(String).like(f"{filters.ticket_id_prefix}%"))
+        if filters.status is not None:
+            conditions.append(TicketEntity.status == filters.status.value)
+        if filters.brand is not None:
+            conditions.append(TicketEntity.brand_id == filters.brand.value)
+        if filters.observing is not None:
+            conditions.append(TicketEntity.observing.is_(filters.observing))
+
+        return conditions
+
+    async def list_tickets(
+        self,
+        *,
+        filters: TicketFilters | None = None,
+        limit: int = RECENT_TICKETS_LIMIT,
+        offset: int = 0,
+    ) -> TicketListResult:
+        limit = min(max(limit, 1), MAX_TICKETS_LIMIT)
+        offset = max(offset, 0)
+        conditions = self._ticket_filter_conditions(filters)
+
+        total_stmt = select(func.count()).select_from(TicketEntity)
+        items_stmt = (
+            select(TicketEntity)
+            .order_by(desc(TicketEntity.updated_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        if conditions:
+            total_stmt = total_stmt.where(*conditions)
+            items_stmt = items_stmt.where(*conditions)
+
+        total = await self._session.scalar(total_stmt)
+        items = list(await self._session.scalars(items_stmt))
+
+        return TicketListResult(
+            items=items,
+            total=total or 0,
+            limit=limit,
+            offset=offset,
+        )
 
     async def set_observing(
         self,
