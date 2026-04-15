@@ -115,22 +115,33 @@ class MCPSettings(BaseModel):
         return f"http://{self.host}:{self.port}/mcp"
 
 
+class WebAdminSettings(BaseModel):
+    host: str = "0.0.0.0"
+    port: int = 8080
+    session_secret: SecretStr
+    bootstrap_username: str
+    bootstrap_password: str
+    cookie_secure: bool
+
+
 class AppSettings(BaseSettings):
     app_debug: bool = False
     init_ref_update: bool = False
-    zendesk: ZendeskSettings
+    zendesk: ZendeskSettings = 
     rabbitmq: RabbitMQSettings
     amazon: AmazonSettings
     telegram: TelegramSettings
     postgres: PostgresSettings
     llm: LLMSettings
     mcp: MCPSettings
+    web: WebAdminSettings
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         env_nested_delimiter="__",
+        extra="ignore",
     )
 
     @classmethod
