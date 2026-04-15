@@ -1,5 +1,4 @@
 import uuid
-from contextlib import asynccontextmanager
 from textwrap import dedent
 
 from pydantic import ValidationError
@@ -20,28 +19,11 @@ from src.jobs.models import InitialReplyMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand, Ticket
-from src.logs.filters import log_ctx
 from src.services import Service
 from src.tickets_filter.cache import tickets_filter_cache
 
+from .log_context import log_context
 from .reply_posting import ReplyPostingContext, ReplyPostingService
-
-
-@asynccontextmanager
-async def log_context(ticket_id: int, brand: Brand, iteration_id: str):
-    token = log_ctx.set({
-        "brand": brand.value,
-        "job_type": JobType.INITIAL_REPLY.value,
-        "ticket_id": ticket_id,
-        "iteration_id": iteration_id,
-    })
-    try:
-        yield
-    finally:
-        try:
-            log_ctx.reset(token)
-        except Exception:
-            pass
 
 
 class InitialReplyWorker(Service):
@@ -76,7 +58,7 @@ class InitialReplyWorker(Service):
 
         ticket = message.ticket
         iteration_id = uuid.uuid4().hex[:8]
-        async with (log_context(ticket.id, self.brand, iteration_id)):
+        async with (log_context(ticket.id, self.brand, iteration_id, JobType.INITIAL_REPLY)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
