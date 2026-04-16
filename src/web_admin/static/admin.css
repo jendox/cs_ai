@@ -399,7 +399,7 @@ h2 {
 }
 
 .settings-submit {
-  align-self: flex-start;
+  align-self: flex-end;
   margin-top: auto;
 }
 
