@@ -190,6 +190,10 @@ uv run alembic downgrade -1`.)
   - MCP: `amazon-mcp`
 - `MCP__HOST` must stay `amazon-mcp` for container-to-container access.
 - RabbitMQ management port (`15672`) is exposed only in dev compose.
+- RabbitMQ can take **30–40s** to accept AMQP on a cold start. The prod/dev
+  compose healthchecks use `check_port_connectivity` (not plain `ping`) so
+  `app` does not start until port **5672** really listens — avoids transient
+  `Connection refused` right after `docker compose up`.
 - Always run `prod-migrate` before `prod-up` after an image change — Web Admin
   login requires the `admin_users` table, Playground requires `llm_playground_*`,
   etc.

@@ -30,10 +30,13 @@ services:
     volumes:
       - rabbitmq_data_prod:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      # `ping` can succeed before the AMQP listener binds to 5672; that races
+      # with `app` starting and causes transient ConnectionRefused (errno 111).
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 12
+      start_period: 60s
 
   amazon-mcp:
     image: ${MCP_IMAGE:-yourdockerhub/amazon-mcp}:${MCP_TAG:-latest}

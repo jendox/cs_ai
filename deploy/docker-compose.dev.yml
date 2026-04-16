@@ -35,10 +35,11 @@ services:
     volumes:
       - rabbitmq_data_dev:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 12
+      start_period: 60s
 
   amazon-mcp:
     image: amazon-mcp:dev
