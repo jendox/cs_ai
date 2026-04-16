@@ -1570,6 +1570,86 @@ input[type="number"]::-webkit-inner-spin-button {
   line-height: 1.5;
 }
 
+.timeline-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.attachment-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  white-space: normal;
+}
+
+.attachment-link:hover {
+  background: var(--surface-muted);
+}
+
+.attachment-link img,
+.attachment-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.attachment-link img {
+  object-fit: cover;
+}
+
+.attachment-icon {
+  position: relative;
+}
+
+.attachment-icon::before,
+.attachment-icon::after {
+  position: absolute;
+  content: "";
+  border: 2px solid var(--muted);
+}
+
+.attachment-icon::before {
+  inset: 9px 11px 8px;
+  border-radius: 3px;
+}
+
+.attachment-icon::after {
+  top: 9px;
+  right: 11px;
+  width: 8px;
+  height: 8px;
+  border-left: 0;
+  border-bottom: 0;
+}
+
+.attachment-link span:last-child {
+  min-width: 0;
+}
+
+.attachment-link strong,
+.attachment-link small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.attachment-link small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .timeline-body.is-collapsed {
   max-height: 86px;
   overflow: hidden;

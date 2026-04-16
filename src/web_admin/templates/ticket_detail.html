@@ -321,7 +321,7 @@
   <div class="timeline" data-ticket-timeline>
     {% for item in timeline_items %}
       <article class="timeline-item timeline-{{ item.kind }} timeline-actor-{{ item.actor_class }} {{ item.badge_class }}" data-actor="{{ item.actor_class }}" data-has-error="{{ 'true' if item.error or item.badge_class == 'failed' else 'false' }}">
-        <div class="timeline-heading" {% if item.body %}data-collapse-toggle role="button" tabindex="0" aria-expanded="true"{% endif %}>
+        <div class="timeline-heading" {% if item.body or item.attachments %}data-collapse-toggle role="button" tabindex="0" aria-expanded="true"{% endif %}>
           <div class="timeline-actor" aria-hidden="true">{{ item.actor_label[:1] }}</div>
           <div class="timeline-header-content">
             <div class="timeline-title-row">
@@ -336,13 +336,38 @@
               {% endfor %}
             </div>
           </div>
-          {% if item.body %}
+          {% if item.body or item.attachments %}
             <span class="timeline-collapse-icon" aria-hidden="true"></span>
           {% endif %}
         </div>
 
-        {% if item.body %}
-          <div class="timeline-body" data-collapsible-body>{{ item.body }}</div>
+        {% if item.body or item.attachments %}
+          <div class="timeline-body" data-collapsible-body>
+            {% if item.body %}
+              <div>{{ item.body }}</div>
+            {% endif %}
+
+            {% if item.attachments %}
+              <div class="timeline-attachments">
+                {% for attachment in item.attachments %}
+                  <a class="attachment-link" href="{{ attachment.content_url or '#' }}" {% if attachment.content_url %}target="_blank" rel="noreferrer"{% endif %}>
+                    {% if attachment.thumbnail_url %}
+                      <img src="{{ attachment.thumbnail_url }}" alt="">
+                    {% else %}
+                      <span class="attachment-icon" aria-hidden="true"></span>
+                    {% endif %}
+                    <span>
+                      <strong>{{ attachment.file_name }}</strong>
+                      <small>
+                        {{ attachment.content_type or "file" }}
+                        {% if attachment.size_label %} · {{ attachment.size_label }}{% endif %}
+                      </small>
+                    </span>
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
         {% endif %}
 
         {% if item.error %}

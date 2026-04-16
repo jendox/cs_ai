@@ -38,7 +38,7 @@ from src.db.repositories import (
 )
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
-from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment, TicketStatus
+from src.libs.zendesk_client.models import AGENT_IDS, Attachment, Brand, Comment, TicketStatus
 from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
 from src.tickets_filter.config import TicketsFilterRuleKind
 from src.tickets_filter.dto import TicketsFilterRuleDTO
@@ -52,6 +52,7 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
 MAX_RULE_VALUE_LENGTH = 128
+BYTE_UNIT = 1024
 OBSERVING_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     ("true", "Observed"),
@@ -107,6 +108,15 @@ ATTEMPT_STATUS_TITLES: dict[ReplyAttemptStatus, str] = {
 
 
 @dataclass(frozen=True)
+class TimelineAttachment:
+    file_name: str
+    content_type: str | None
+    size_label: str | None
+    content_url: str | None
+    thumbnail_url: str | None
+
+
+@dataclass(frozen=True)
 class TicketTimelineItem:
     kind: Literal["event", "comment", "attempt"]
     created_at: datetime
@@ -118,6 +128,7 @@ class TicketTimelineItem:
     body: str | None = None
     error: str | None = None
     meta: tuple[str, ...] = ()
+    attachments: tuple[TimelineAttachment, ...] = ()
 
 
 def _parse_ticket_id_prefix(value: str | None) -> str | None:
@@ -368,7 +379,45 @@ def _event_actor(event: EventEntity) -> tuple[str, str]:
     return "unknown", "Unknown"
 
 
-def _build_event_timeline_item(event: EventEntity) -> TicketTimelineItem:
+def _format_attachment_size(size: int | None) -> str | None:
+    if size is None:
+        return None
+    if size < BYTE_UNIT:
+        return f"{size} B"
+    if size < BYTE_UNIT * BYTE_UNIT:
+        return f"{size / BYTE_UNIT:.1f} KB"
+    return f"{size / (BYTE_UNIT * BYTE_UNIT):.1f} MB"
+
+
+def _attachment_url(attachment: Attachment) -> str | None:
+    return attachment.mapped_content_url or attachment.content_url
+
+
+def _timeline_attachment(attachment: Attachment) -> TimelineAttachment:
+    thumbnail = attachment.thumbnails[0] if attachment.thumbnails else None
+    return TimelineAttachment(
+        file_name=attachment.file_name or f"attachment-{attachment.id or 'unknown'}",
+        content_type=attachment.content_type,
+        size_label=_format_attachment_size(attachment.size),
+        content_url=_attachment_url(attachment),
+        thumbnail_url=_attachment_url(thumbnail) if thumbnail is not None else None,
+    )
+
+
+def _comment_attachments(comments: list[Comment]) -> dict[str, tuple[TimelineAttachment, ...]]:
+    result: dict[str, tuple[TimelineAttachment, ...]] = {}
+    for comment in comments:
+        if comment.id is None or not comment.attachments:
+            continue
+        result[str(comment.id)] = tuple(_timeline_attachment(item) for item in comment.attachments)
+    return result
+
+
+def _build_event_timeline_item(
+    event: EventEntity,
+    *,
+    attachments: tuple[TimelineAttachment, ...] = (),
+) -> TicketTimelineItem:
     is_comment = event.source_type == "comment"
     actor_class, actor_label = _event_actor(event)
     meta = [
@@ -386,6 +435,7 @@ def _build_event_timeline_item(event: EventEntity) -> TicketTimelineItem:
         actor_label=actor_label,
         body=event.body,
         meta=tuple(item for item in meta if item),
+        attachments=attachments,
     )
 
 
@@ -407,6 +457,7 @@ def _build_comment_timeline_item(comment: Comment) -> TicketTimelineItem:
         actor_label="Agent" if author == "agent" else "Customer",
         body=comment.body or "-",
         meta=tuple(item for item in meta if item),
+        attachments=tuple(_timeline_attachment(item) for item in comment.attachments),
     )
 
 
@@ -437,9 +488,16 @@ def _build_ticket_timeline(
     events: list[EventEntity],
     fallback_comments: list[Comment],
     attempts: list[TicketReplyAttemptEntity],
+    attachments_by_comment_id: dict[str, tuple[TimelineAttachment, ...]],
 ) -> list[TicketTimelineItem]:
     items = [
-        *(_build_event_timeline_item(event) for event in events),
+        *(
+            _build_event_timeline_item(
+                event,
+                attachments=attachments_by_comment_id.get(event.source_id or "", ()),
+            )
+            for event in events
+        ),
         *(_build_comment_timeline_item(comment) for comment in fallback_comments),
         *(_build_attempt_timeline_item(attempt) for attempt in attempts),
     ]
@@ -568,14 +626,19 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
     fallback_comments: list[Comment] = []
     comments_error = None
     comments_source = "local"
+    live_comments: list[Comment] = []
     if not comment_events:
-        fallback_comments, comments_error = await _load_zendesk_comments(ticket_id)
+        live_comments, comments_error = await _load_zendesk_comments(ticket_id)
+        fallback_comments = live_comments
         comments_source = "zendesk_fallback"
+    else:
+        live_comments, _ = await _load_zendesk_comments(ticket_id)
 
     timeline_items = _build_ticket_timeline(
         events=events,
         fallback_comments=fallback_comments,
         attempts=attempts,
+        attachments_by_comment_id=_comment_attachments(live_comments),
     )
     last_successful_attempt = _last_successful_attempt(attempts)
 

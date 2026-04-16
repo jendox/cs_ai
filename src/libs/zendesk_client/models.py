@@ -154,6 +154,26 @@ class Comment(BaseModel):
     html_body: OptionalStr
     public: OptionalBool
     created_at: OptionalDatetime
+    attachments: list["Attachment"] = Field(default_factory=list)
+
+
+class AttachmentThumbnail(BaseModel):
+    id: OptionalInt
+    file_name: OptionalStr
+    content_type: OptionalStr
+    size: OptionalInt
+    content_url: OptionalStr
+    mapped_content_url: OptionalStr
+
+
+class Attachment(BaseModel):
+    id: OptionalInt
+    file_name: OptionalStr
+    content_type: OptionalStr
+    size: OptionalInt
+    content_url: OptionalStr
+    mapped_content_url: OptionalStr
+    thumbnails: list[AttachmentThumbnail] = Field(default_factory=list)
 
 
 class Ticket(BaseModel):
