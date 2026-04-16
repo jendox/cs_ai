@@ -85,8 +85,8 @@ services:
       amazon-mcp:
         condition: service_started
     command: ["uv", "run", "python", "run_web.py"]
-    ports:
-      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB__PORT:-8080}:${WEB__PORT:-8080}"
+    expose:
+      - "${WEB__PORT:-8080}"
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -96,6 +96,25 @@ services:
       retries: 5
       start_period: 15s
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      CS_DOMAIN: ${CS_DOMAIN:-cs.partach-dev.ru}
+
 volumes:
   pg_data_prod:
   rabbitmq_data_prod:
+  caddy_data:
+  caddy_config:

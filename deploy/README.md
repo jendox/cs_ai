@@ -143,23 +143,28 @@ make prod-up           # recreate containers that changed
 make prod-logs         # tail app + web
 ```
 
-### 5.4) Web Admin exposure
+### 5.4) Web Admin HTTPS via Caddy
 
-By default the `web` service binds to `127.0.0.1:${WEB__PORT:-8080}` on the
-host. This means:
+The prod stack includes a **Caddy** reverse proxy that automatically obtains
+a TLS certificate from Let's Encrypt and serves the admin UI over HTTPS.
 
-- The admin is **not** reachable from the public internet out of the box.
-- Put an HTTPS reverse proxy (nginx / caddy / traefik) on the host, pointing to
-  `http://127.0.0.1:8080`, and keep `WEB__COOKIE_SECURE=true`.
-- If you want the admin reachable directly on the VPS IP (e.g. for an initial
-  smoke test before configuring TLS), set in `.env.prod`:
+**Prerequisites on the VPS:**
 
-  ```dotenv
-  WEB_BIND_ADDRESS=0.0.0.0
-  WEB__COOKIE_SECURE=false
-  ```
+1. Create a DNS **A record**: `cs.partach-dev.ru` → VPS IP address.
+2. Open ports **80** and **443** in the firewall (`ufw allow 80,443/tcp`).
+3. Set `CS_DOMAIN=cs.partach-dev.ru` in `deploy/.env.prod` (already the default).
+4. Keep `WEB__COOKIE_SECURE=true`.
 
-  and run `make prod-up`. **Do not leave `COOKIE_SECURE=false` on.**
+After `make prod-up` the admin is reachable at:
+
+```
+https://cs.partach-dev.ru/admin/login
+```
+
+Caddy stores certificates in the `caddy_data` volume. As long as that volume
+persists, renewals are automatic and invisible.
+
+To use a different domain, change `CS_DOMAIN` in `.env.prod` and re-up.
 
 Web Admin entrypoint: `/admin/login`. On first startup it bootstraps
 `WEB__BOOTSTRAP_USERNAME` as an active `superadmin` if that user does not yet

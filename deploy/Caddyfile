@@ -1,0 +1,13 @@
+{$CS_DOMAIN:cs.partach-dev.ru} {
+	reverse_proxy web:{$WEB__PORT:8080}
+
+	encode gzip zstd
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
