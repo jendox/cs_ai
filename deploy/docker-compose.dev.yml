@@ -72,6 +72,28 @@ services:
         condition: service_started
     command: ["uv", "run", "python", "run.py"]
 
+  web:
+    image: cs-app:dev
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      amazon-mcp:
+        condition: service_started
+    command: ["uv", "run", "python", "run_web.py"]
+    ports:
+      - "${WEB__PORT:-8080}:${WEB__PORT:-8080}"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${WEB__PORT:-8080}/admin/login', timeout=3).status==200 else 1)\""
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   pg_data_dev:
   rabbitmq_data_dev:

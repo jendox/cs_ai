@@ -2,6 +2,12 @@ UV ?= uv
 DOCKER_COMPOSE ?= docker compose
 DEV_COMPOSE_FILE ?= deploy/docker-compose.dev.yml
 DEV_ENV_FILE ?= deploy/.env.dev
+PROD_COMPOSE_FILE ?= deploy/docker-compose.prod.yml
+PROD_ENV_FILE ?= deploy/.env.prod
+
+# Docker Hub image coordinates for the CS app (override via env or make CS_IMAGE=...)
+CS_IMAGE ?= yourdockerhub/cs-app
+CS_TAG ?= latest
 
 # Ruff
 lint: ## Проверяет линтерами код в репозитории
@@ -46,6 +52,32 @@ mcp-logs: ## Смотреть логи Amazon MCP из dev compose
 
 server: ## Запустить Web Admin FastAPI server
 	$(UV) run python run_web.py
+
+# ---- Prod deployment helpers --------------------------------------------------
+
+app-build: ## Собрать prod-образ cs-app с тегами $(CS_IMAGE):$(CS_TAG) и :<git sha>
+	docker build -f deploy/Dockerfile.app -t $(CS_IMAGE):$(CS_TAG) -t $(CS_IMAGE):$$(git rev-parse --short HEAD) .
+
+app-push: ## Запушить оба тега ($(CS_TAG) и git sha) в Docker Hub
+	docker push $(CS_IMAGE):$(CS_TAG)
+	docker push $(CS_IMAGE):$$(git rev-parse --short HEAD)
+
+prod-pull: ## На сервере: спулить свежий образ из Docker Hub
+	$(DOCKER_COMPOSE) -f $(PROD_COMPOSE_FILE) --env-file $(PROD_ENV_FILE) pull
+
+prod-migrate: ## На сервере: применить миграции одноразовым контейнером (profile ops)
+	$(DOCKER_COMPOSE) -f $(PROD_COMPOSE_FILE) --env-file $(PROD_ENV_FILE) --profile ops run --rm migrate
+
+prod-up: ## На сервере: поднять/обновить стек (app + web)
+	$(DOCKER_COMPOSE) -f $(PROD_COMPOSE_FILE) --env-file $(PROD_ENV_FILE) up -d
+
+prod-logs: ## На сервере: логи app и web
+	$(DOCKER_COMPOSE) -f $(PROD_COMPOSE_FILE) --env-file $(PROD_ENV_FILE) logs -f app web
+
+prod-down: ## На сервере: остановить prod стек (без удаления томов)
+	$(DOCKER_COMPOSE) -f $(PROD_COMPOSE_FILE) --env-file $(PROD_ENV_FILE) down
+
+prod-deploy: prod-pull prod-migrate prod-up ## На сервере: полный upgrade = pull → migrate → up
 
 list: ## Отображает список доступных команд и их описания
 	@echo "Cписок доступных команд:"

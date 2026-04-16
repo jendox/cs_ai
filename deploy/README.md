@@ -88,44 +88,94 @@ generation runs may be stored as failed runs.
 
 ## 5) Run PROD stack on VPS
 
-1. Copy repo (or only `deploy/` + compose files) to VPS.
-2. Put `deploy/.env.prod` with real values.
-3. Ensure `CS_IMAGE/MCP_IMAGE` and tags point to Docker Hub images.
+The prod stack now includes a `web` service that serves the FastAPI Web Admin
+(`run_web.py`) from the same image as the worker (`app`). Both containers share
+the `.env.prod` file and talk to the same Postgres / RabbitMQ instances.
 
-Apply migrations:
+### 5.1) Build & push the image (on your dev machine)
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod --profile ops run --rm migrate
+make app-build               # builds yourdockerhub/cs-app:latest + :<git sha>
+make app-push                # pushes both tags
+
+# override image/tag if needed:
+make app-build CS_IMAGE=acme/cs-app CS_TAG=v1.2.3
+make app-push  CS_IMAGE=acme/cs-app CS_TAG=v1.2.3
 ```
 
-Start stack:
+(Same flow for the MCP sidecar if it also changed — see `make mcp-build`.)
+
+### 5.2) Initial setup (first time on VPS)
+
+1. Copy `deploy/` to the server (compose files + env example).
+2. Create `deploy/.env.prod` from `.env.prod.example` and fill real values.
+3. Ensure `CS_IMAGE` / `CS_TAG` / `MCP_IMAGE` / `MCP_TAG` in the env file point
+   to the Docker Hub coordinates you pushed above.
+4. Pull images, run migrations, start the stack:
 
 ```bash
+make prod-pull
+make prod-migrate
+make prod-up
+```
+
+Or the equivalent raw commands:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod pull
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod \
+  --profile ops run --rm migrate
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d
 ```
 
-Check app logs:
+### 5.3) Routine upgrades (after pushing a new image)
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod logs -f app
+make prod-deploy       # = prod-pull → prod-migrate → prod-up
 ```
 
-Run Web Admin as a separate process/container using the same image and command:
+Rolling individual steps:
 
 ```bash
-uv run python run_web.py
+make prod-pull         # download new image
+make prod-migrate      # apply Alembic migrations (idempotent)
+make prod-up           # recreate containers that changed
+make prod-logs         # tail app + web
 ```
 
-If exposed publicly, put it behind HTTPS and set:
+### 5.4) Web Admin exposure
 
-```dotenv
-WEB__COOKIE_SECURE=true
+By default the `web` service binds to `127.0.0.1:${WEB__PORT:-8080}` on the
+host. This means:
+
+- The admin is **not** reachable from the public internet out of the box.
+- Put an HTTPS reverse proxy (nginx / caddy / traefik) on the host, pointing to
+  `http://127.0.0.1:8080`, and keep `WEB__COOKIE_SECURE=true`.
+- If you want the admin reachable directly on the VPS IP (e.g. for an initial
+  smoke test before configuring TLS), set in `.env.prod`:
+
+  ```dotenv
+  WEB_BIND_ADDRESS=0.0.0.0
+  WEB__COOKIE_SECURE=false
+  ```
+
+  and run `make prod-up`. **Do not leave `COOKIE_SECURE=false` on.**
+
+Web Admin entrypoint: `/admin/login`. On first startup it bootstraps
+`WEB__BOOTSTRAP_USERNAME` as an active `superadmin` if that user does not yet
+exist.
+
+### 5.5) Rollback
+
+Pin an older tag and re-up:
+
+```bash
+CS_TAG=<previous-git-sha> make prod-deploy
 ```
 
-Web Admin entrypoint: `/admin/login`.
-
-On startup it bootstraps `WEB__BOOTSTRAP_USERNAME` as an active `superadmin` if
-the user does not exist yet.
+(Alembic migrations are forward-only; if a rollback needs schema changes, run
+`alembic downgrade` explicitly via `docker compose ... run --rm migrate \
+uv run alembic downgrade -1`.)
 
 ## 6) Notes
 
@@ -135,7 +185,11 @@ the user does not exist yet.
   - MCP: `amazon-mcp`
 - `MCP__HOST` must stay `amazon-mcp` for container-to-container access.
 - RabbitMQ management port (`15672`) is exposed only in dev compose.
-- Apply migrations before starting Web Admin; login requires the `admin_users`
-  table and Playground requires `llm_playground_*` tables.
+- Always run `prod-migrate` before `prod-up` after an image change — Web Admin
+  login requires the `admin_users` table, Playground requires `llm_playground_*`,
+  etc.
 - Keep `WEB__SESSION_SECRET` stable across restarts, otherwise existing admin
   sessions and CSRF cookies become invalid.
+- `app` (worker) and `web` (admin) are intentionally separate services: you can
+  restart the admin UI without touching the poller / reply workers and vice
+  versa (`docker compose ... restart web` / `... restart app`).
