@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from src import config
@@ -23,8 +23,10 @@ from src.db.repositories import (
     CLASSIFICATION_DECISION_SERVICE,
     CLASSIFICATION_DECISION_UNKNOWN,
     CLASSIFICATION_SOURCE_LLM,
+    CLASSIFICATION_SOURCE_MANUAL,
     CLASSIFICATION_SOURCE_RULE,
     EventsRepository,
+    TicketClassificationAuditCreate,
     TicketClassificationAuditsRepository,
     TicketFilters,
     TicketNotFound,
@@ -35,13 +37,14 @@ from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
 from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment, TicketStatus
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
+from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
 from src.zendesk.models import comment_to_event
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
-DEFAULT_LIMIT = 50
+DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
 OBSERVING_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     ("true", "Observed"),
@@ -57,13 +60,21 @@ CLASSIFICATION_SOURCE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     (CLASSIFICATION_SOURCE_RULE, "Rule"),
     (CLASSIFICATION_SOURCE_LLM, "LLM"),
+    (CLASSIFICATION_SOURCE_MANUAL, "Manual"),
+)
+MANUAL_CLASSIFICATION_DECISION_OPTIONS: tuple[tuple[str, str], ...] = (
+    (CLASSIFICATION_DECISION_CUSTOMER, "Customer"),
+    (CLASSIFICATION_DECISION_SERVICE, "Service"),
+    (CLASSIFICATION_DECISION_UNKNOWN, "Unknown"),
 )
 TICKET_SAVED_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments refreshed.",
+    "classification": "Ticket classification updated.",
 }
 TICKET_ERROR_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments could not be refreshed.",
     "ticket_not_found": "Ticket is not stored locally yet, so comments cannot be saved.",
+    "classification_decision": "Invalid classification decision.",
 }
 EVENT_AUTHOR_LABELS: dict[str, str] = {
     "user": "customer",
@@ -140,9 +151,20 @@ def _parse_classification_decision(value: str | None) -> str | None:
 
 
 def _parse_classification_source(value: str | None) -> str | None:
-    if value in {CLASSIFICATION_SOURCE_RULE, CLASSIFICATION_SOURCE_LLM}:
+    if value in {
+        CLASSIFICATION_SOURCE_RULE,
+        CLASSIFICATION_SOURCE_LLM,
+        CLASSIFICATION_SOURCE_MANUAL,
+    }:
         return value
     return None
+
+
+def _manual_classification_detail(username: str, note: str | None) -> str:
+    normalized_note = (note or "").strip()
+    if normalized_note:
+        return f"updated by {username}: {normalized_note}"
+    return f"updated by {username}"
 
 
 def _tickets_url(  # noqa: PLR0913
@@ -384,6 +406,7 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Response:
+    selected_limit = parse_page_limit(limit)
     filters = TicketFilters(
         ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
@@ -397,7 +420,7 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
         repo = TicketsRepository(session)
         result = await repo.list_tickets(
             filters=filters,
-            limit=limit,
+            limit=selected_limit,
             offset=offset,
         )
 
@@ -429,6 +452,7 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
             "observing_options": OBSERVING_OPTIONS,
             "classification_decision_options": CLASSIFICATION_DECISION_OPTIONS,
             "classification_source_options": CLASSIFICATION_SOURCE_OPTIONS,
+            "limit_options": PAGE_LIMIT_OPTIONS,
             "limit": result.limit,
             "offset": result.offset,
             "prev_url": _tickets_url(
@@ -485,6 +509,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
         comment_events = [event for event in events if event.source_type == "comment"]
         attempts = await attempts_repo.list_by_ticket(ticket_id)
         classification_audit = await classification_audits_repo.get_latest_by_ticket(ticket_id)
+        classification_audits = await classification_audits_repo.list_by_ticket(ticket_id)
 
     fallback_comments: list[Comment] = []
     comments_error = None
@@ -518,6 +543,9 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
             "comments_error": comments_error,
             "last_successful_attempt": last_successful_attempt,
             "classification_audit": classification_audit,
+            "classification_audits": classification_audits,
+            "manual_classification_decision_options": MANUAL_CLASSIFICATION_DECISION_OPTIONS,
+            "can_edit_classification": user.role.level >= UserRole.ADMIN.level,
             "zendesk_ticket_url": _zendesk_ticket_url(ticket_id),
             "flash": _ticket_flash(saved=saved, error=error, count=count),
         },
@@ -553,5 +581,48 @@ async def refresh_ticket_comments(
 
     return RedirectResponse(
         url=f"/admin/tickets/{ticket_id}?saved=refresh&count={count}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{ticket_id}/classification")
+async def update_ticket_classification(
+    ticket_id: int,
+    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
+    _: Annotated[None, Depends(require_csrf)],
+    decision: Annotated[str, Form()],
+    note: Annotated[str | None, Form()] = None,
+) -> Response:
+    parsed_decision = _parse_classification_decision(decision)
+    if parsed_decision is None:
+        return RedirectResponse(
+            url=f"/admin/tickets/{ticket_id}?error=classification_decision",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    async with session_local() as session:
+        async with session.begin():
+            tickets_repo = TicketsRepository(session)
+            classification_audits_repo = TicketClassificationAuditsRepository(session)
+            try:
+                ticket = await tickets_repo.get_ticket_by_id(ticket_id)
+            except TicketNotFound:
+                return RedirectResponse(
+                    url=f"/admin/tickets/{ticket_id}?error=ticket_not_found",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+
+            await classification_audits_repo.create(
+                TicketClassificationAuditCreate(
+                    ticket_id=ticket.ticket_id,
+                    brand_id=ticket.brand_id,
+                    decision=parsed_decision,
+                    source=CLASSIFICATION_SOURCE_MANUAL,
+                    detail=_manual_classification_detail(user.username, note),
+                ),
+            )
+
+    return RedirectResponse(
+        url=f"/admin/tickets/{ticket_id}?saved=classification",
         status_code=status.HTTP_303_SEE_OTHER,
     )

@@ -20,12 +20,13 @@ from src.db.repositories import (
 from src.jobs.models import JobType
 from src.libs.zendesk_client.models import Brand
 from src.web_admin.dependencies import get_session_manager, require_role
+from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
 
 router = APIRouter(prefix="/replies", tags=["replies"])
 
-DEFAULT_LIMIT = 50
+DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
 DEFAULT_PERIOD = "all"
 PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("24h", "Last 24h"),
@@ -131,6 +132,7 @@ async def get_replies(  # noqa: PLR0913, PLR0917
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Response:
+    selected_limit = parse_page_limit(limit)
     selected_period = _parse_period(period)
     filters = ReplyAttemptFilters(
         ticket_id=None,
@@ -145,7 +147,7 @@ async def get_replies(  # noqa: PLR0913, PLR0917
         repo = TicketReplyAttemptsRepository(session)
         result = await repo.list_attempts(
             filters=filters,
-            limit=limit,
+            limit=selected_limit,
             offset=offset,
         )
         summary = await repo.get_summary(filters=filters)
@@ -175,6 +177,7 @@ async def get_replies(  # noqa: PLR0913, PLR0917
             "job_types": [JobType.INITIAL_REPLY, JobType.FOLLOWUP_REPLY],
             "brands": list(Brand),
             "period_options": PERIOD_OPTIONS,
+            "limit_options": PAGE_LIMIT_OPTIONS,
             "limit": result.limit,
             "offset": result.offset,
             "prev_url": _replies_url(

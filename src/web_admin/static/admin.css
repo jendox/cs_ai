@@ -211,6 +211,11 @@ h2 {
   gap: 20px;
 }
 
+.ticket-detail-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -231,6 +236,45 @@ h2 {
   margin-top: 6px;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.collapsible-heading {
+  align-items: center;
+  margin: -6px -6px 20px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 80ms ease;
+}
+
+.collapsible-heading:hover {
+  background: var(--surface-muted);
+}
+
+.collapsible-heading:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.collapsible-heading:active {
+  transform: translateY(1px);
+}
+
+.collapsible-heading[aria-expanded="false"] {
+  margin-bottom: -6px;
+}
+
+.collapsible-title {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.collapsible-section-body.is-collapsed {
+  display: none;
 }
 
 .section-actions {
@@ -281,6 +325,49 @@ h2 {
   color: var(--danger);
 }
 
+.classification-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.classification-current,
+.classification-form {
+  min-width: 0;
+}
+
+.definition-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.definition-list div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.definition-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.definition-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.classification-audit-table {
+  min-width: 980px;
+}
+
 .mode-readout {
   display: grid;
   gap: 6px;
@@ -297,6 +384,23 @@ h2 {
 .mode-readout span {
   color: var(--muted);
   line-height: 1.5;
+}
+
+.llm-settings-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.form.llm-settings-form {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-submit {
+  align-self: flex-start;
+  margin-top: auto;
 }
 
 .form {
@@ -974,7 +1078,16 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .tickets-filters-form {
-  grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 0.9fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(150px, 1fr) minmax(130px, 0.9fr) auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.replies-filters-form {
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(100px, 0.7fr) auto;
+}
+
+.tickets-filters-form .filter-reset-button {
+  justify-self: end;
+  min-width: 112px;
 }
 
 .filter-rules-form {
@@ -982,7 +1095,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .playground-filters-form {
-  grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(100px, 0.7fr) auto;
 }
 
 .filter-reset-button {
@@ -1007,6 +1120,36 @@ input[type="number"]::-webkit-inner-spin-button {
   transform: translateY(1px) scale(0.98);
 }
 
+.quick-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.quick-filter-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.quick-filter-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: var(--surface-muted);
+}
+
+.quick-filter-link:active {
+  transform: translateY(1px) scale(0.98);
+}
+
 .pagination {
   display: flex;
   align-items: center;
@@ -1028,7 +1171,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .tickets-table {
-  min-width: 1320px;
+  min-width: 1220px;
 }
 
 .tickets-table td small {
@@ -1091,6 +1234,7 @@ input[type="number"]::-webkit-inner-spin-button {
 @media (max-width: 820px) {
   .filters-form,
   .tickets-filters-form,
+  .replies-filters-form,
   .filter-rules-form,
   .playground-filters-form {
     grid-template-columns: 1fr;
@@ -1103,6 +1247,10 @@ input[type="number"]::-webkit-inner-spin-button {
 
   .pagination-actions {
     flex-wrap: wrap;
+  }
+
+  .tickets-filters-form .filter-reset-button {
+    justify-self: stretch;
   }
 }
 
@@ -1507,6 +1655,11 @@ input[type="number"]::-webkit-inner-spin-button {
   }
 
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .classification-layout,
+  .definition-list div {
     grid-template-columns: 1fr;
   }
 }

@@ -24,12 +24,13 @@ from src.db.repositories import (
 )
 from src.libs.zendesk_client.models import Brand
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
+from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
 
 router = APIRouter(prefix="/playground", tags=["playground"])
 
-DEFAULT_LIMIT = 50
+DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
 
 SAVED_MESSAGES: dict[str, str] = {
     "created": "Playground ticket created.",
@@ -116,6 +117,7 @@ async def get_playground(  # noqa: PLR0913, PLR0917
     saved: str | None = None,
     error: str | None = None,
 ) -> Response:
+    selected_limit = parse_page_limit(limit)
     filters = LLMPlaygroundFilters(
         ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
@@ -126,7 +128,7 @@ async def get_playground(  # noqa: PLR0913, PLR0917
         repo = LLMPlaygroundRepository(session)
         result = await repo.list_tickets(
             filters=filters,
-            limit=limit,
+            limit=selected_limit,
             offset=offset,
         )
 
@@ -149,6 +151,7 @@ async def get_playground(  # noqa: PLR0913, PLR0917
             "selected_brand": selected_brand,
             "statuses": list(LLMPlaygroundTicketStatus),
             "brands": list(Brand),
+            "limit_options": PAGE_LIMIT_OPTIONS,
             "limit": result.limit,
             "offset": result.offset,
             "prev_url": _playground_url(

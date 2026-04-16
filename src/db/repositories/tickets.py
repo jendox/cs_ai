@@ -18,6 +18,9 @@ from src.db.repositories.ticket_classification_audits import (
     CLASSIFICATION_DECISION_CUSTOMER,
     CLASSIFICATION_DECISION_SERVICE,
     CLASSIFICATION_DECISION_UNKNOWN,
+    CLASSIFICATION_SOURCE_LLM,
+    CLASSIFICATION_SOURCE_MANUAL,
+    CLASSIFICATION_SOURCE_RULE,
 )
 from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 
@@ -179,7 +182,11 @@ class TicketsRepository(BaseRepository):
         }:
             conditions.append(audit.decision == filters.classification_decision)
 
-        if filters.classification_source in {"rule", "llm"}:
+        if filters.classification_source in {
+            CLASSIFICATION_SOURCE_RULE,
+            CLASSIFICATION_SOURCE_LLM,
+            CLASSIFICATION_SOURCE_MANUAL,
+        }:
             conditions.append(audit.source == filters.classification_source)
 
         return conditions

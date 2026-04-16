@@ -76,7 +76,15 @@
       </select>
     </label>
 
-    <input type="hidden" name="limit" value="{{ limit }}">
+    <label class="field">
+      <span>Per Page</span>
+      <select name="limit">
+        {% for item in limit_options %}
+          <option value="{{ item }}" {% if limit == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
     <a class="button button-secondary filter-reset-button" href="/admin/tickets" title="Reset filters" aria-label="Reset filters">
       <svg aria-hidden="true" viewBox="0 0 24 24">
         <path d="M4 7h10a6 6 0 1 1-5.2 9"></path>
@@ -86,6 +94,13 @@
       <span>Reset</span>
     </a>
   </form>
+
+  <div class="quick-filter-row" aria-label="Quick classification filters">
+    <a class="quick-filter-link" href="/admin/tickets?classification_decision=customer&limit={{ limit }}&offset=0">Customer</a>
+    <a class="quick-filter-link" href="/admin/tickets?classification_decision=service&limit={{ limit }}&offset=0">Service</a>
+    <a class="quick-filter-link" href="/admin/tickets?classification_decision=unknown&limit={{ limit }}&offset=0">Unknown</a>
+    <a class="quick-filter-link" href="/admin/tickets?classification_source=manual&limit={{ limit }}&offset=0">Manual</a>
+  </div>
 
   <div class="table-wrap">
     <table class="data-table tickets-table">
@@ -101,7 +116,6 @@
           <th>Last Customer</th>
           <th>Updated</th>
           <th>Last Seen</th>
-          <th>Timeline</th>
         </tr>
       </thead>
       <tbody>
@@ -147,13 +161,10 @@
             <td>{{ item.last_customer_comment_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_customer_comment_at else "-" }}</td>
             <td>{{ item.ticket.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.updated_at else "-" }}</td>
             <td>{{ item.ticket.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if item.ticket.last_seen_at else "-" }}</td>
-            <td>
-              <a class="button button-secondary table-button" href="/admin/tickets/{{ item.ticket.ticket_id }}">Open</a>
-            </td>
           </tr>
         {% else %}
           <tr>
-            <td colspan="11">No tickets found.</td>
+            <td colspan="10">No tickets found.</td>
           </tr>
         {% endfor %}
       </tbody>

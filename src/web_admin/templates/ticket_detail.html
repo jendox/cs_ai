@@ -5,11 +5,14 @@
 {% block page_title %}Ticket {{ ticket_id }}{% endblock %}
 
 {% block content %}
-<section class="panel">
-  <div class="section-heading">
-    <div>
-      <h2>Ticket Summary</h2>
-      <p>Zendesk conversation and generated reply attempts.</p>
+<div class="ticket-detail-stack">
+<section class="panel collapsible-panel">
+  <div class="section-heading collapsible-heading" data-section-collapse-toggle role="button" tabindex="0" aria-expanded="false">
+    <div class="collapsible-title">
+      <div>
+        <h2>Ticket Summary</h2>
+        <p>Zendesk conversation and generated reply attempts.</p>
+      </div>
     </div>
     <div class="section-actions">
       <form method="post" action="/admin/tickets/{{ ticket_id }}/refresh">
@@ -39,6 +42,7 @@
     </div>
   </div>
 
+  <div class="collapsible-section-body is-collapsed" data-section-collapsible-body>
   <div class="summary-grid">
     <div>
       <span class="meta-label">Status</span>
@@ -55,13 +59,13 @@
     <div>
       <span class="meta-label">Classification</span>
       {% if classification_audit and classification_audit.decision == "unknown" and classification_audit.source == "llm" %}
-        <strong>failed</strong>
+        <span class="status-pill classification-failed">failed</span>
         <small title="{{ classification_audit.detail or '' }}">
           LLM classification failed
           {% if classification_audit.llm_confidence is not none %} · {{ "%.2f"|format(classification_audit.llm_confidence) }}{% endif %}
         </small>
       {% elif classification_audit %}
-        <strong>{{ classification_audit.decision }}</strong>
+        <span class="status-pill classification-{{ classification_audit.decision }}">{{ classification_audit.decision }}</span>
         <small>
           {{ classification_audit.source }}
           {% if classification_audit.rule %} · {{ classification_audit.rule }}{% endif %}
@@ -97,6 +101,127 @@
         <strong>-</strong>
       {% endif %}
     </div>
+  </div>
+  </div>
+</section>
+
+<section class="panel collapsible-panel">
+  <div class="section-heading collapsible-heading" data-section-collapse-toggle role="button" tabindex="0" aria-expanded="false">
+    <div class="collapsible-title">
+      <div>
+        <h2>Classification Audit</h2>
+        <p>Latest ticket classification, source, and manual corrections.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="collapsible-section-body is-collapsed" data-section-collapsible-body>
+  <div class="classification-layout">
+    <div class="classification-current">
+      <span class="meta-label">Current Decision</span>
+      {% if classification_audit and classification_audit.decision == "unknown" and classification_audit.source == "llm" %}
+        <span class="status-pill classification-failed">failed</span>
+      {% elif classification_audit %}
+        <span class="status-pill classification-{{ classification_audit.decision }}">{{ classification_audit.decision }}</span>
+      {% else %}
+        <span class="status-pill classification-unknown">unknown</span>
+      {% endif %}
+
+      {% if classification_audit %}
+        <dl class="definition-list">
+          <div>
+            <dt>Source</dt>
+            <dd>{{ classification_audit.source }}</dd>
+          </div>
+          <div>
+            <dt>Rule</dt>
+            <dd>{{ classification_audit.rule or "-" }}</dd>
+          </div>
+          <div>
+            <dt>LLM</dt>
+            <dd>
+              {% if classification_audit.llm_category %}
+                {{ classification_audit.llm_category }}
+                {% if classification_audit.llm_confidence is not none %} · confidence {{ "%.2f"|format(classification_audit.llm_confidence) }}{% endif %}
+                {% if classification_audit.threshold is not none %} · threshold {{ "%.2f"|format(classification_audit.threshold) }}{% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </dd>
+          </div>
+          <div>
+            <dt>Detail</dt>
+            <dd>{{ classification_audit.detail or "-" }}</dd>
+          </div>
+          <div>
+            <dt>Created</dt>
+            <dd>{{ classification_audit.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+          </div>
+        </dl>
+      {% else %}
+        <p class="empty-state">No classification audit records found.</p>
+      {% endif %}
+    </div>
+
+    {% if can_edit_classification and ticket %}
+      <form class="form classification-form" method="post" action="/admin/tickets/{{ ticket_id }}/classification">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="field">
+          <span>Manual Decision</span>
+          <select name="decision" required>
+            {% for value, label in manual_classification_decision_options %}
+              <option value="{{ value }}" {% if classification_audit and classification_audit.decision == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>Note</span>
+          <textarea name="note" rows="4" placeholder="Why this classification is correct"></textarea>
+        </label>
+        <button class="button button-primary" type="submit">Save Classification</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table classification-audit-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Decision</th>
+          <th>Source</th>
+          <th>Rule / LLM</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for audit in classification_audits %}
+          <tr>
+            <td>{{ audit.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+            <td>
+              {% if audit.decision == "unknown" and audit.source == "llm" %}
+                <span class="status-pill classification-failed">failed</span>
+              {% else %}
+                <span class="status-pill classification-{{ audit.decision }}">{{ audit.decision }}</span>
+              {% endif %}
+            </td>
+            <td>{{ audit.source }}</td>
+            <td>
+              {{ audit.rule or audit.llm_category or "-" }}
+              {% if audit.llm_confidence is not none %}
+                <small>confidence {{ "%.2f"|format(audit.llm_confidence) }}</small>
+              {% endif %}
+            </td>
+            <td>{{ audit.detail or "-" }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5">No classification audit records found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   </div>
 </section>
 
@@ -186,6 +311,32 @@
       });
     });
 
+    document.querySelectorAll("[data-section-collapse-toggle]").forEach((heading) => {
+      heading.querySelectorAll(".section-actions").forEach((actions) => {
+        actions.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+      });
+
+      const toggle = () => {
+        const panel = heading.closest(".collapsible-panel");
+        const body = panel.querySelector("[data-section-collapsible-body]");
+        if (!body) {
+          return;
+        }
+        const collapsed = body.classList.toggle("is-collapsed");
+        heading.setAttribute("aria-expanded", String(!collapsed));
+      };
+
+      heading.addEventListener("click", toggle);
+      heading.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggle();
+        }
+      });
+    });
+
     timeline.querySelectorAll("[data-collapse-toggle]").forEach((heading) => {
       const toggle = () => {
         const item = heading.closest(".timeline-item");
@@ -266,4 +417,5 @@
     </table>
   </div>
 </section>
+</div>
 {% endblock %}

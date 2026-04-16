@@ -20,14 +20,14 @@ from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
 from src.tickets_filter.config import TicketsFilterRuleKind
 from src.tickets_filter.dto import TicketsFilterRuleDTO
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
+from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
 
 router = APIRouter(prefix="/filter-rules", tags=["filter-rules"])
 
 MAX_RULE_VALUE_LENGTH = 128
-DEFAULT_LIMIT = 20
-LIMIT_OPTIONS: tuple[int, ...] = (10, 20)
+DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
 ACTIVE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     ("true", "Active"),
@@ -83,12 +83,6 @@ def _parse_active(value: str | None) -> bool | None:
     if value == "false":
         return False
     return None
-
-
-def _parse_limit(value: int | None) -> int:
-    if value in LIMIT_OPTIONS:
-        return value
-    return DEFAULT_LIMIT
 
 
 def _parse_offset(value: int | None) -> int:
@@ -203,7 +197,7 @@ async def get_filter_rules(  # noqa: PLR0913, PLR0917
     selected_active = active or ""
     selected_brand = brand or ""
     selected_search = (search or "").strip()
-    selected_limit = _parse_limit(limit)
+    selected_limit = parse_page_limit(limit)
     selected_offset = _parse_offset(offset)
 
     async with session_local() as session:
@@ -240,7 +234,7 @@ async def get_filter_rules(  # noqa: PLR0913, PLR0917
             "rule_kinds": list(TicketsFilterRuleKind),
             "brands": list(Brand),
             "active_options": ACTIVE_OPTIONS,
-            "limit_options": LIMIT_OPTIONS,
+            "limit_options": PAGE_LIMIT_OPTIONS,
             "selected_kind": selected_kind,
             "selected_active": selected_active,
             "selected_brand": selected_brand,

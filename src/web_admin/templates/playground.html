@@ -49,7 +49,15 @@
       </select>
     </label>
 
-    <input type="hidden" name="limit" value="{{ limit }}">
+    <label class="field">
+      <span>Per Page</span>
+      <select name="limit">
+        {% for item in limit_options %}
+          <option value="{{ item }}" {% if limit == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
     <a class="button button-secondary filter-reset-button" href="/admin/playground" title="Reset filters" aria-label="Reset filters">
       <svg aria-hidden="true" viewBox="0 0 24 24">
         <path d="M4 7h10a6 6 0 1 1-5.2 9"></path>

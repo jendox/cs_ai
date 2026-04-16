@@ -12,6 +12,7 @@ __all__ = (
     "CLASSIFICATION_DECISION_SERVICE",
     "CLASSIFICATION_DECISION_UNKNOWN",
     "CLASSIFICATION_SOURCE_LLM",
+    "CLASSIFICATION_SOURCE_MANUAL",
     "CLASSIFICATION_SOURCE_RULE",
     "TicketClassificationAuditCreate",
     "TicketClassificationAuditsRepository",
@@ -22,6 +23,7 @@ CLASSIFICATION_DECISION_SERVICE = "service"
 CLASSIFICATION_DECISION_UNKNOWN = "unknown"
 CLASSIFICATION_SOURCE_RULE = "rule"
 CLASSIFICATION_SOURCE_LLM = "llm"
+CLASSIFICATION_SOURCE_MANUAL = "manual"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -75,3 +77,18 @@ class TicketClassificationAuditsRepository(BaseRepository):
             .limit(1)
         )
         return await self._session.scalar(stmt)
+
+    async def list_by_ticket(
+        self,
+        ticket_id: int,
+    ) -> list[TicketClassificationAuditEntity]:
+        stmt = (
+            select(TicketClassificationAuditEntity)
+            .where(TicketClassificationAuditEntity.ticket_id == ticket_id)
+            .order_by(
+                desc(TicketClassificationAuditEntity.created_at),
+                desc(TicketClassificationAuditEntity.id),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

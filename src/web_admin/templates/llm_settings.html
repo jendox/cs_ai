@@ -7,7 +7,7 @@
 {% block content %}
 {% set selected_provider = response.provider.value if response.provider else default_provider %}
 <div class="page-grid">
-  <section class="panel">
+  <section class="panel llm-settings-panel">
     <div class="section-heading">
       <div>
         <h2>Response Model</h2>
@@ -15,7 +15,7 @@
       </div>
     </div>
 
-    <form class="form" method="post" action="/admin/llm/response">
+    <form class="form llm-settings-form" method="post" action="/admin/llm/response">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <label class="field">
@@ -99,11 +99,11 @@
         <input name="max_tokens" type="number" min="1" step="1" value="{{ response.max_tokens }}">
       </label>
 
-      <button class="button button-primary" type="submit">Save Response Settings</button>
+      <button class="button button-primary settings-submit" type="submit">Save Response Settings</button>
     </form>
   </section>
 
-  <section class="panel">
+  <section class="panel llm-settings-panel">
     <div class="section-heading">
       <div>
         <h2>Classification</h2>
@@ -117,7 +117,7 @@
       {% endif %}
     </div>
 
-    <form class="form" method="post" action="/admin/llm/classification">
+    <form class="form llm-settings-form" method="post" action="/admin/llm/classification">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <label class="radio-row">
@@ -190,7 +190,7 @@
         <input name="max_tokens" type="number" min="1" step="1" value="{{ classification.max_tokens }}">
       </label>
 
-      <button class="button button-primary" type="submit">Save Classification Settings</button>
+      <button class="button button-primary settings-submit" type="submit">Save Classification Settings</button>
     </form>
   </section>
 </div>
