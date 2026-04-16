@@ -1,5 +1,7 @@
 from typing import Any, Protocol
 
+from pydantic import BaseModel
+
 from src.ai.config import RuntimeClassificationSettings, RuntimeResponseSettings
 
 __all__ = (
@@ -15,5 +17,5 @@ class LLMClientInterface(Protocol):
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
         system_prompt: str,
         tools: list | None = None,
-        json_output: bool = False,
+        response_model: type[BaseModel] | None = None,
     ) -> str: ...

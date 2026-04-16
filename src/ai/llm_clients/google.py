@@ -3,6 +3,7 @@ from typing import Any
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
 from src.ai.config import RuntimeClassificationSettings, RuntimeResponseSettings
 from src.ai.llm_clients.interfaces import LLMClientInterface
@@ -20,13 +21,30 @@ class GoogleLLMClient(LLMClientInterface):
         self.logger = logging.getLogger("google_llm")
         self._client = genai.Client(api_key=api_key)
 
+    @staticmethod
+    def _body_text_for_schema(
+        response: types.GenerateContentResponse,
+        response_model: type[BaseModel],
+    ) -> str:
+        parsed = getattr(response, "parsed", None)
+        if isinstance(parsed, response_model):
+            return parsed.model_dump_json()
+        text = response.text or ""
+        if text or not response.candidates:
+            return text
+        chunks: list[str] = []
+        for part in response.candidates[0].content.parts or []:
+            if part.text and part.thought is not True:
+                chunks.append(part.text)
+        return "".join(chunks)
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
         system_prompt: str,
         tools: list | None = None,
-        json_output: bool = False,
+        response_model: type[BaseModel] | None = None,
     ) -> str:
         contents: list[types.Content] = []
         system_instruction = system_prompt or ""
@@ -57,22 +75,13 @@ class GoogleLLMClient(LLMClientInterface):
             self.logger.info("chat", extra={"tools": [t.__name__ for t in tools]})
             config_kwargs["tools"] = tools
 
-        if json_output:
-            # Gemini API: constrain output to JSON so ticket classification (and
-            # similar callers) do not get prose-only replies that break parsing.
+        if response_model is not None:
+            # Pass a Pydantic model as response_schema so the SDK uses the
+            # model_validate_json path and populates response.parsed. Plain
+            # types.Schema + some models (e.g. gemini-2.5-flash-lite) still
+            # return prose or empty .text in production.
             config_kwargs["response_mime_type"] = "application/json"
-            config_kwargs["response_schema"] = types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "category": types.Schema(
-                        type=types.Type.STRING,
-                        format="enum",
-                        enum=["customer_support", "marketing_or_spam"],
-                    ),
-                    "confidence": types.Schema(type=types.Type.NUMBER),
-                },
-                required=["category", "confidence"],
-            )
+            config_kwargs["response_schema"] = response_model
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
@@ -82,8 +91,9 @@ class GoogleLLMClient(LLMClientInterface):
                 contents=contents,
                 config=config,
             )
-            text = response.text or ""
-            return text
+            if response_model is not None:
+                return self._body_text_for_schema(response, response_model)
+            return response.text or ""
 
         except Exception as exc:
             error = str(exc)

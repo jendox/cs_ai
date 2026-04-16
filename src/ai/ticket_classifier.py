@@ -106,11 +106,14 @@ class LLMTicketClassifier:
                 messages=[{"content": content, "role": "user"}],
                 settings=settings,
                 system_prompt=system_prompt,
-                json_output=True,
+                response_model=MessageClassification,
             )
             if not text.strip():
                 raise ValueError("Empty LLM classification response")
-            data = json.loads(extract_json_block(text))
+            try:
+                data = json.loads(text.strip())
+            except json.JSONDecodeError:
+                data = json.loads(extract_json_block(text))
             return LLMClassificationResult(classification=MessageClassification(**data))
         except Exception as exc:
             error = str(exc)
