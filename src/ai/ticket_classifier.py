@@ -106,6 +106,7 @@ class LLMTicketClassifier:
                 messages=[{"content": content, "role": "user"}],
                 settings=settings,
                 system_prompt=system_prompt,
+                json_output=True,
             )
             if not text.strip():
                 raise ValueError("Empty LLM classification response")

@@ -15,4 +15,5 @@ class LLMClientInterface(Protocol):
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
         system_prompt: str,
         tools: list | None = None,
+        json_output: bool = False,
     ) -> str: ...

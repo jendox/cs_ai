@@ -26,6 +26,7 @@ class GoogleLLMClient(LLMClientInterface):
         settings: RuntimeClassificationSettings | RuntimeResponseSettings,
         system_prompt: str,
         tools: list | None = None,
+        json_output: bool = False,
     ) -> str:
         contents: list[types.Content] = []
         system_instruction = system_prompt or ""
@@ -55,6 +56,23 @@ class GoogleLLMClient(LLMClientInterface):
         if tools:
             self.logger.info("chat", extra={"tools": [t.__name__ for t in tools]})
             config_kwargs["tools"] = tools
+
+        if json_output:
+            # Gemini API: constrain output to JSON so ticket classification (and
+            # similar callers) do not get prose-only replies that break parsing.
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "category": types.Schema(
+                        type=types.Type.STRING,
+                        format="enum",
+                        enum=["customer_support", "marketing_or_spam"],
+                    ),
+                    "confidence": types.Schema(type=types.Type.NUMBER),
+                },
+                required=["category", "confidence"],
+            )
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
