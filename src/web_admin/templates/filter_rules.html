@@ -207,7 +207,7 @@
 
   <div class="pagination">
     <div>
-      Showing {{ rules|length }} of {{ total }}
+      {% if total > 0 %}Showing {{ offset + 1 }}–{{ offset + rules|length }} of {{ total }}{% else %}No results{% endif %}
     </div>
     <div class="pagination-actions">
       {% if has_prev %}
