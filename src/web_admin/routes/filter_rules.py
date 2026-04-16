@@ -5,7 +5,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from src import datetime_utils
 from src.db import session_local
@@ -169,6 +169,36 @@ def _pagination_context(
         "prev_url": _rules_url(**url_params, offset=max(selected_offset - selected_limit, 0)),
         "next_url": _rules_url(**url_params, offset=selected_offset + selected_limit),
     }
+
+
+def _rule_test_error_response(
+    *,
+    error: str,
+    wants_json: bool,
+    status_code: int,
+) -> Response:
+    if wants_json:
+        return JSONResponse(
+            {"kind": "error", "message": ERROR_MESSAGES[error]},
+            status_code=status_code,
+        )
+    return RedirectResponse(url=_rules_url(error=error), status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _rule_test_success_response(*, matches: bool, wants_json: bool) -> Response:
+    saved = "test_match" if matches else "test_no_match"
+    if wants_json:
+        return JSONResponse(
+            {
+                "kind": "success" if matches else "notice",
+                "matches": matches,
+                "message": SAVED_MESSAGES[saved],
+            },
+        )
+    return RedirectResponse(
+        url=_rules_url(saved=saved),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 async def _touch_filter_checkpoints(session) -> None:
@@ -362,30 +392,41 @@ async def update_filter_rule_active(
 
 @router.post("/{rule_id}/test")
 async def test_filter_rule(
+    request: Request,
     rule_id: int,
     _: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
     __: Annotated[None, Depends(require_csrf)],
     sample_text: Annotated[str, Form()],
 ) -> Response:
+    wants_json = request.headers.get("x-requested-with") == "fetch"
     normalized_sample = sample_text.strip()
     if not normalized_sample:
-        return RedirectResponse(url=_rules_url(error="sample"), status_code=status.HTTP_303_SEE_OTHER)
+        return _rule_test_error_response(
+            error="sample",
+            wants_json=wants_json,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     try:
         async with session_local() as session:
             repo = TicketsFilterRuleRepository(session)
             rule = await repo.get_rule(rule_id)
     except TicketsFilterRuleNotFound:
-        return RedirectResponse(url=_rules_url(error="not_found"), status_code=status.HTTP_303_SEE_OTHER)
+        return _rule_test_error_response(
+            error="not_found",
+            wants_json=wants_json,
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
     pattern = rule.value if rule.is_regex else re.escape(rule.value)
     try:
         flags = re.IGNORECASE | (re.DOTALL if rule.kind.endswith("body_pattern") else 0)
         matches = re.compile(pattern, flags).search(normalized_sample) is not None
     except re.error:
-        return RedirectResponse(url=_rules_url(error="regex"), status_code=status.HTTP_303_SEE_OTHER)
+        return _rule_test_error_response(
+            error="regex",
+            wants_json=wants_json,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
-    return RedirectResponse(
-        url=_rules_url(saved="test_match" if matches else "test_no_match"),
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    return _rule_test_success_response(matches=matches, wants_json=wants_json)

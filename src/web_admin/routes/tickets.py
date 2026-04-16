@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -25,17 +26,22 @@ from src.db.repositories import (
     CLASSIFICATION_SOURCE_LLM,
     CLASSIFICATION_SOURCE_MANUAL,
     CLASSIFICATION_SOURCE_RULE,
+    CheckpointsRepository,
     EventsRepository,
     TicketClassificationAuditCreate,
     TicketClassificationAuditsRepository,
     TicketFilters,
     TicketNotFound,
     TicketReplyAttemptsRepository,
+    TicketsFilterRuleRepository,
     TicketsRepository,
 )
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
 from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment, TicketStatus
+from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
+from src.tickets_filter.config import TicketsFilterRuleKind
+from src.tickets_filter.dto import TicketsFilterRuleDTO
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
 from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
@@ -45,6 +51,7 @@ from src.zendesk.models import comment_to_event
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 DEFAULT_LIMIT = DEFAULT_PAGE_LIMIT
+MAX_RULE_VALUE_LENGTH = 128
 OBSERVING_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     ("true", "Observed"),
@@ -70,11 +77,15 @@ MANUAL_CLASSIFICATION_DECISION_OPTIONS: tuple[tuple[str, str], ...] = (
 TICKET_SAVED_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments refreshed.",
     "classification": "Ticket classification updated.",
+    "filter_rule": "Filter rule created.",
 }
 TICKET_ERROR_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments could not be refreshed.",
     "ticket_not_found": "Ticket is not stored locally yet, so comments cannot be saved.",
     "classification_decision": "Invalid classification decision.",
+    "filter_rule_kind": "Invalid filter rule kind.",
+    "filter_rule_value": "Rule value is required and must be 128 characters or fewer.",
+    "filter_rule_regex": "Invalid regular expression.",
 }
 EVENT_AUTHOR_LABELS: dict[str, str] = {
     "user": "customer",
@@ -160,6 +171,39 @@ def _parse_classification_source(value: str | None) -> str | None:
     return None
 
 
+def _parse_filter_rule_kind(value: str | None) -> TicketsFilterRuleKind | None:
+    if not value:
+        return None
+    try:
+        return TicketsFilterRuleKind(value)
+    except ValueError:
+        return None
+
+
+def _normalize_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _normalize_via_channel(value: str | None) -> str | None:
+    normalized = _normalize_optional(value)
+    return normalized.lower() if normalized is not None else None
+
+
+def _validate_filter_rule_value(value: str, *, is_regex: bool) -> str | None:
+    normalized = value.strip()
+    if not normalized or len(normalized) > MAX_RULE_VALUE_LENGTH:
+        return "filter_rule_value"
+    if is_regex:
+        try:
+            re.compile(normalized)
+        except re.error:
+            return "filter_rule_regex"
+    return None
+
+
 def _manual_classification_detail(username: str, note: str | None) -> str:
     normalized_note = (note or "").strip()
     if normalized_note:
@@ -189,6 +233,16 @@ def _tickets_url(  # noqa: PLR0913
         "offset": str(offset),
     }
     return f"/admin/tickets?{urlencode(query)}"
+
+
+async def _touch_filter_checkpoints(session) -> None:
+    from src import datetime_utils
+
+    now = datetime_utils.utcnow()
+    checkpoints_repo = CheckpointsRepository(session)
+    for brand in Brand:
+        await checkpoints_repo.set_checkpoint(get_checkpoint_name(brand), now)
+    tickets_filter_cache.clear()
 
 
 def _zendesk_ticket_url(ticket_id: int) -> str:
@@ -545,6 +599,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
             "classification_audit": classification_audit,
             "classification_audits": classification_audits,
             "manual_classification_decision_options": MANUAL_CLASSIFICATION_DECISION_OPTIONS,
+            "filter_rule_kinds": list(TicketsFilterRuleKind),
             "can_edit_classification": user.role.level >= UserRole.ADMIN.level,
             "zendesk_ticket_url": _zendesk_ticket_url(ticket_id),
             "flash": _ticket_flash(saved=saved, error=error, count=count),
@@ -624,5 +679,63 @@ async def update_ticket_classification(
 
     return RedirectResponse(
         url=f"/admin/tickets/{ticket_id}?saved=classification",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{ticket_id}/filter-rules")
+async def create_ticket_filter_rule(  # noqa: PLR0913, PLR0917
+    ticket_id: int,
+    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
+    _: Annotated[None, Depends(require_csrf)],
+    kind: Annotated[str, Form()],
+    value: Annotated[str, Form()],
+    is_regex: Annotated[str | None, Form()] = None,
+    via_channel: Annotated[str | None, Form()] = None,
+    comment: Annotated[str | None, Form()] = None,
+) -> Response:
+    parsed_kind = _parse_filter_rule_kind(kind)
+    if parsed_kind is None:
+        return RedirectResponse(
+            url=f"/admin/tickets/{ticket_id}?error=filter_rule_kind",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    regex_enabled = is_regex == "true"
+    normalized_value = value.strip()
+    validation_error = _validate_filter_rule_value(normalized_value, is_regex=regex_enabled)
+    if validation_error is not None:
+        return RedirectResponse(
+            url=f"/admin/tickets/{ticket_id}?error={validation_error}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    async with session_local() as session:
+        async with session.begin():
+            tickets_repo = TicketsRepository(session)
+            filter_rules_repo = TicketsFilterRuleRepository(session)
+            try:
+                ticket = await tickets_repo.get_ticket_by_id(ticket_id)
+            except TicketNotFound:
+                return RedirectResponse(
+                    url=f"/admin/tickets/{ticket_id}?error=ticket_not_found",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+
+            await filter_rules_repo.create_rule(
+                TicketsFilterRuleDTO(
+                    kind=parsed_kind,
+                    value=normalized_value,
+                    is_regex=regex_enabled,
+                    brand_id=ticket.brand_id,
+                    via_channel=_normalize_via_channel(via_channel),
+                    comment=_normalize_optional(comment),
+                    created_by=user.username,
+                ),
+            )
+            await _touch_filter_checkpoints(session)
+
+    return RedirectResponse(
+        url=f"/admin/tickets/{ticket_id}?saved=filter_rule",
         status_code=status.HTTP_303_SEE_OTHER,
     )

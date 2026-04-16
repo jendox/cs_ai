@@ -183,12 +183,13 @@
                       </svg>
                     </button>
                   </div>
-                  <form class="form" method="post" action="/admin/filter-rules/{{ rule.id }}/test">
+                  <form class="form" method="post" action="/admin/filter-rules/{{ rule.id }}/test" data-rule-test-form>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label class="field">
                       <span>Sample Text</span>
                       <textarea name="sample_text" rows="8" required></textarea>
                     </label>
+                    <div class="notice" data-rule-test-result hidden></div>
                     <button class="button button-primary" type="submit">Test</button>
                   </form>
                 </div>
@@ -288,6 +289,38 @@
         submitTimer = window.setTimeout(() => {
           form.requestSubmit();
         }, 100);
+      });
+    });
+
+    document.querySelectorAll("[data-rule-test-form]").forEach((testForm) => {
+      const result = testForm.querySelector("[data-rule-test-result]");
+      testForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!result) {
+          return;
+        }
+
+        result.hidden = true;
+        result.classList.remove("success", "error");
+
+        try {
+          const response = await fetch(testForm.action, {
+            method: "POST",
+            body: new FormData(testForm),
+            headers: {
+              "X-Requested-With": "fetch",
+            },
+          });
+          const payload = await response.json();
+          result.textContent = payload.message || "Rule test completed.";
+          result.classList.toggle("success", response.ok && payload.matches);
+          result.classList.toggle("error", !response.ok);
+          result.hidden = false;
+        } catch {
+          result.textContent = "Rule test could not be completed.";
+          result.classList.add("error");
+          result.hidden = false;
+        }
       });
     });
   })();

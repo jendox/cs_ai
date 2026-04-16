@@ -113,6 +113,16 @@
         <p>Latest ticket classification, source, and manual corrections.</p>
       </div>
     </div>
+    {% if can_edit_classification and ticket %}
+      <div class="section-actions">
+        <button class="icon-button icon-button-primary" type="button" title="Create filter rule" aria-label="Create filter rule" data-dialog-open="create-filter-rule-dialog">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 5v14"></path>
+            <path d="M5 12h14"></path>
+          </svg>
+        </button>
+      </div>
+    {% endif %}
   </div>
 
   <div class="collapsible-section-body is-collapsed" data-section-collapsible-body>
@@ -225,6 +235,67 @@
   </div>
 </section>
 
+{% if can_edit_classification and ticket %}
+  <dialog class="modal" id="create-filter-rule-dialog">
+    <div class="modal-panel">
+      <div class="modal-heading">
+        <div>
+          <h2>Create Filter Rule</h2>
+          <p>Created for {{ ticket.brand_id|brand_label }} from ticket {{ ticket_id }}.</p>
+        </div>
+        <button class="icon-button" type="button" title="Close" aria-label="Close" data-dialog-close>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m6 6 12 12"></path>
+            <path d="m18 6-12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <form class="form" method="post" action="/admin/tickets/{{ ticket_id }}/filter-rules">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label class="field">
+          <span>Kind</span>
+          <select name="kind" required>
+            {% for item in filter_rule_kinds %}
+              <option value="{{ item.value }}" {% if item.value == "customer_body_pattern" %}selected{% endif %}>{{ item.value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Value</span>
+          <textarea name="value" rows="4" maxlength="128" required placeholder="Text or regex pattern"></textarea>
+        </label>
+
+        <div class="form-row">
+          <label class="field">
+            <span>Brand</span>
+            <input type="text" value="{{ ticket.brand_id|brand_label }}" readonly>
+          </label>
+
+          <label class="field">
+            <span>Via Channel</span>
+            <input name="via_channel" type="text" placeholder="optional">
+          </label>
+        </div>
+
+        <label class="choice-row">
+          <input type="checkbox" name="is_regex" value="true">
+          <span>Regex pattern</span>
+        </label>
+
+        <label class="field">
+          <span>Comment</span>
+          <textarea name="comment" rows="3">Created from ticket {{ ticket_id }}</textarea>
+        </label>
+
+        <button class="button button-primary settings-submit" type="submit">Save</button>
+      </form>
+    </div>
+  </dialog>
+{% endif %}
+
 <section class="panel">
   <div class="section-heading">
     <div>
@@ -308,6 +379,21 @@
         buttons.forEach((item) => item.classList.remove("is-active"));
         button.classList.add("is-active");
         applyFilter(button.dataset.timelineFilter);
+      });
+    });
+
+    document.querySelectorAll("[data-dialog-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const dialog = document.getElementById(button.dataset.dialogOpen);
+        if (dialog && "showModal" in dialog) {
+          dialog.showModal();
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.closest("dialog")?.close();
       });
     });
 
