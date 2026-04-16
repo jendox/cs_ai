@@ -58,6 +58,17 @@ def _handler_add_api_allowed_pattern(
         api_allowed_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
 
 
+def _handler_add_customer_body_pattern(
+    customer_body_patterns: dict[str, re.Pattern],
+    rule: TicketsFilterRuleDTO,
+    value: str,
+    _value_lower: str,
+) -> None:
+    pattern_str = value if rule.is_regex else re.escape(value)
+    if pattern_str not in customer_body_patterns:
+        customer_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
+
+
 def _handler_add_spam_subject_pattern(
     spam_subject_patterns: dict[str, re.Pattern],
     rule: TicketsFilterRuleDTO,
@@ -77,7 +88,7 @@ def _handler_add_spam_body_pattern(
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
     if pattern_str not in spam_body_patterns:
-        spam_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
+        spam_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
 
 
 class TicketsFilterRuleKind(StrEnum):
@@ -89,6 +100,7 @@ class TicketsFilterRuleKind(StrEnum):
     SERVICE_TAG_PREFIX = "service_tag_prefix"
     PLATFORM_TAG_HINT = "platform_tag_hint"
     API_ALLOWED_PATTERN = "api_allowed_pattern"
+    CUSTOMER_BODY_PATTERN = "customer_body_pattern"
     SPAM_SUBJECT_PATTERN = "spam_subject_pattern"
     SPAM_BODY_PATTERN = "spam_body_pattern"
 
@@ -114,6 +126,7 @@ class FilterConfig:
     service_tags_prefixes: tuple[str, ...]
     platform_tag_hints: tuple[str, ...]
     api_allowed_patterns: tuple[re.Pattern, ...]
+    customer_body_patterns: tuple[re.Pattern, ...]
     spam_subject_patterns: tuple[re.Pattern, ...]
     spam_body_patterns: tuple[re.Pattern, ...]
 
@@ -135,6 +148,7 @@ class FilterConfig:
         service_tags_prefixes: list[str] = []
         platform_tag_hints: set[str] = set()
         api_allowed_patterns: dict[str, re.Pattern] = {}
+        customer_body_patterns: dict[str, re.Pattern] = {}
         spam_subject_patterns: dict[str, re.Pattern] = {}
         spam_body_patterns: dict[str, re.Pattern] = {}
 
@@ -158,6 +172,8 @@ class FilterConfig:
                 partial(_handler_add_to_set, platform_tag_hints),
             TicketsFilterRuleKind.API_ALLOWED_PATTERN:
                 partial(_handler_add_api_allowed_pattern, api_allowed_patterns),
+            TicketsFilterRuleKind.CUSTOMER_BODY_PATTERN:
+                partial(_handler_add_customer_body_pattern, customer_body_patterns),
             TicketsFilterRuleKind.SPAM_SUBJECT_PATTERN:
                 partial(_handler_add_spam_subject_pattern, spam_subject_patterns),
             TicketsFilterRuleKind.SPAM_BODY_PATTERN:
@@ -175,6 +191,7 @@ class FilterConfig:
             service_tags_prefixes=tuple(service_tags_prefixes),
             platform_tag_hints=tuple(sorted(platform_tag_hints)),
             api_allowed_patterns=tuple(api_allowed_patterns.values()),
+            customer_body_patterns=tuple(customer_body_patterns.values()),
             spam_subject_patterns=tuple(spam_subject_patterns.values()),
             spam_body_patterns=tuple(spam_body_patterns.values()),
         )

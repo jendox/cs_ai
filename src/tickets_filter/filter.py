@@ -10,6 +10,7 @@ The filter is driven by rule sets stored in the database and evaluates:
 - ticket tags,
 - delivery channel,
 - API-allowed user message patterns,
+- customer body patterns,
 - spam/marketing subject patterns.
 - spam/marketing body patterns.
 
@@ -204,6 +205,25 @@ class TicketsFilter:
                 return RuleResult(RuleOutcome.USER, f"api_exceptions.pattern: {pattern.pattern}")
         return RuleResult(RuleOutcome.ABSTAIN)
 
+    def _rule_customer_body_exceptions(self, ticket: Ticket) -> RuleResult:
+        """
+        Exceptions for channel notifications that contain a real customer message.
+
+        Some marketplaces send a wrapper email to Zendesk, but replying to the
+        email still replies to the customer conversation. These must bypass
+        service/spam filtering and LLM classification.
+        """
+
+        body = (ticket.description or "").strip()
+        if not body:
+            return RuleResult(RuleOutcome.ABSTAIN)
+
+        for pattern in self.config.customer_body_patterns:
+            if pattern.search(body):
+                return RuleResult(RuleOutcome.USER, f"customer_body.pattern: {pattern.pattern}")
+
+        return RuleResult(RuleOutcome.ABSTAIN)
+
     def _rule_spam_marketing(self, ticket: Ticket) -> RuleResult:
         """
         Detect clear marketing/spam/collaboration emails from personal mailboxes.
@@ -271,7 +291,7 @@ class TicketsFilter:
             3. If no rule fires → ticket is treated as a user ticket by default.
         """
 
-        # 1. API exceptions (may explicitly mark a ticket as user-level).
+        # 1. Customer exceptions (may explicitly mark a ticket as user-level).
         exc = self._rule_api_exceptions(ticket)
         if exc.outcome == RuleOutcome.USER:
             self.logger.info(
@@ -279,6 +299,18 @@ class TicketsFilter:
                 extra=helpers.make_log_record(ticket, "api_exception", exc.reason),
             )
             return ServiceDecision(is_service=False, rule="api_exception", detail=exc.reason)
+
+        customer_body_exc = self._rule_customer_body_exceptions(ticket)
+        if customer_body_exc.outcome == RuleOutcome.USER:
+            self.logger.info(
+                "allow",
+                extra=helpers.make_log_record(ticket, "customer_body_exception", customer_body_exc.reason),
+            )
+            return ServiceDecision(
+                is_service=False,
+                rule="customer_body_exception",
+                detail=customer_body_exc.reason,
+            )
 
         # 2. Ordered rule chain
         rules: list[tuple[str, Callable[[Ticket], RuleResult]]] = [
