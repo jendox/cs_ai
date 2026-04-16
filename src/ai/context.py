@@ -6,7 +6,7 @@ from src.ai.amazon_mcp_client import AmazonMCPHttpClient
 from src.ai.config import LLMRuntimeSettingsStorage
 from src.ai.config.prompt import LLMPromptStorage
 from src.ai.llm_clients import LLMClientPool
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
 
 logger = logging.getLogger("llm_brand_ctx")
 

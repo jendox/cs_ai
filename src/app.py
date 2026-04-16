@@ -11,7 +11,6 @@ from src.ai.context import LLMContext
 from src.ai.llm_clients.pool import LLMClientPool
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
-from src.libs.zendesk_client.models import Brand
 from src.workers import FollowUpReplyWorker, InitialReplyWorker, TicketClosedWorker
 from src.workflows import catalog_sync
 from src.zendesk.poller import Poller
@@ -39,13 +38,14 @@ async def app():
             )
 
             tasks: list[Any] = []
-            for brand in Brand.supported():
+            for brand in settings.brand.supported:
+                brand_id = settings.brand.id_for(brand)
                 tasks += [
-                    Poller(zendesk_client, amqp_url, brand),
-                    InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand),
-                    FollowUpReplyWorker(zendesk_client, amqp_url, llm_context, brand),
-                    # AgentDirectiveWorker(zendesk_client, amqp_url, brand),
-                    TicketClosedWorker(zendesk_client, amqp_url, brand),
+                    Poller(zendesk_client, amqp_url, brand, brand_id),
+                    InitialReplyWorker(zendesk_client, amqp_url, llm_context, brand, brand_id),
+                    FollowUpReplyWorker(zendesk_client, amqp_url, llm_context, brand, brand_id),
+                    # AgentDirectiveWorker(zendesk_client, amqp_url, brand, brand_id),
+                    TicketClosedWorker(zendesk_client, amqp_url, brand, brand_id),
                 ]
                 # синхронизация каталога один раз при запуске приложения, т.к. бд пустая
                 # дальше нужно запускать периодически через админку, т.к. данные меняются редко

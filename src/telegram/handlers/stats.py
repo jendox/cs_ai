@@ -5,9 +5,9 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from src.config import get_app_settings
 from src.db.models import UserRole
 from src.db.repositories import TicketsRepository
-from src.libs.zendesk_client.models import Brand
 from src.telegram.decorators import with_repository
 from src.telegram.filters import RoleRequired
 
@@ -15,19 +15,17 @@ router = Router(name=__name__)
 
 
 def _format_brand(brand_id: int) -> str:
-    try:
-        brand = Brand(brand_id)
+    brand = get_app_settings().brand.brand_for_id(brand_id)
+    if brand is not None:
         return brand.name.title()
-    except Exception:
-        return f"#{brand_id}"
+    return f"#{brand_id}"
 
 
 def _short_brand(brand_id: int) -> str:
-    try:
-        brand = Brand(brand_id)
+    brand = get_app_settings().brand.brand_for_id(brand_id)
+    if brand is not None:
         return brand.short
-    except Exception:
-        return "??"
+    return "??"
 
 
 def _format_datetime(dt: datetime | None) -> str:

@@ -10,15 +10,16 @@ import pytest
 
 from src.jobs.models import JobType
 from src.jobs.rabbitmq_queue import create_job_queue
-from src.libs.zendesk_client.models import Brand
 from tests.integration.conftest import amqp_url
+
+BRAND_ID = 12345
 
 
 @pytest.mark.usefixtures("db_engine")
 @pytest.mark.asyncio
 async def test_publish_and_consume_roundtrip() -> None:
     url = amqp_url()
-    job_queue = await create_job_queue(url, Brand.SUPERSELF)
+    job_queue = await create_job_queue(url, BRAND_ID)
     payload = {"ticket_id": 42, "probe": True}
     received: dict = {}
 
@@ -27,7 +28,7 @@ async def test_publish_and_consume_roundtrip() -> None:
         return True
 
     channel = await job_queue.ensure()
-    main_name = f"jobs.{JobType.TICKET_CLOSED.value}.{Brand.SUPERSELF.value}"
+    main_name = f"jobs.{JobType.TICKET_CLOSED.value}.{BRAND_ID}"
     main_queue = await channel.declare_queue(name=main_name, passive=True)
     await main_queue.purge()
 
@@ -35,7 +36,7 @@ async def test_publish_and_consume_roundtrip() -> None:
         publish_ok = await job_queue.publish(
             JobType.TICKET_CLOSED,
             payload,
-            brand=Brand.SUPERSELF,
+            brand_id=BRAND_ID,
         )
         assert publish_ok is True
 
@@ -55,10 +56,10 @@ async def test_publish_and_consume_roundtrip() -> None:
 @pytest.mark.asyncio
 async def test_retry_queue_declared() -> None:
     url = amqp_url()
-    job_queue = await create_job_queue(url, Brand.SUPERSELF)
+    job_queue = await create_job_queue(url, BRAND_ID)
     try:
         channel = await job_queue.ensure()
-        retry_name = f"jobs.{JobType.INITIAL_REPLY.value}.{Brand.SUPERSELF.value}.retry.1"
+        retry_name = f"jobs.{JobType.INITIAL_REPLY.value}.{BRAND_ID}.retry.1"
         queue = await channel.declare_queue(name=retry_name, passive=True)
         assert queue.name == retry_name
     finally:

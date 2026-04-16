@@ -1,9 +1,7 @@
-import os
 from datetime import datetime
-from enum import IntEnum, StrEnum
-from typing import Annotated, Any, Self
+from enum import StrEnum
+from typing import Annotated, Any
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
@@ -29,49 +27,6 @@ AGENT_IDS = {
     23063989634716,  # Anna
     23064038312732,  # Julia
 }
-
-
-def _require_int_env(name: str, default: str | None = None) -> int:
-    raw = os.getenv(name, default)
-    if raw is None:
-        raise RuntimeError(f"Missing required env var: {name}")
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError(f"{name} must be int, got: {raw!r}") from exc
-
-load_dotenv()
-SUPERSELF_ID = _require_int_env("BRAND__SUPERSELF_ID", "23064017794844")
-SMARTPARTS_ID = _require_int_env("BRAND__SMARTPARTS_ID", "23063999037340")
-CLEOCORA_ID = _require_int_env("BRAND__CLEOCORA_ID", "23063999037000")
-
-
-class Brand(IntEnum):
-    SUPERSELF = SUPERSELF_ID
-    SMARTPARTS = SMARTPARTS_ID
-    CLEOCORA = CLEOCORA_ID
-
-    @classmethod
-    def supported(cls) -> list[Self]:
-        raw = os.getenv("BRAND__SUPPORTED", "SUPERSELF")
-        names = [x.strip().upper() for x in raw.split(",") if x.strip()]
-        result: list[Self] = []
-        for name in names:
-            try:
-                result.append(cls[name])
-            except KeyError as exc:
-                raise RuntimeError(f"Unknown brand in BRAND__SUPPORTED: {name}") from exc
-        return result
-
-    @property
-    def short(self) -> str:
-        if self == Brand.SUPERSELF:
-            return "SS"
-        if self == Brand.SMARTPARTS:
-            return "SP"
-        if self == Brand.CLEOCORA:
-            return "CC"
-        return "??"
 
 
 class TicketStatus(StrEnum):
@@ -178,7 +133,7 @@ class Attachment(BaseModel):
 
 
 class Ticket(BaseModel):
-    brand: Brand | None = Field(default=None, alias="brand_id")
+    brand_id: int | None = Field(default=None, alias="brand_id")
     comment: Comment | None = None
     comment_count: OptionalInt
     created_at: OptionalDatetime

@@ -1,6 +1,6 @@
 import anyio
 
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
 from src.services.base import Service
 
 __all__ = (

@@ -6,9 +6,10 @@ from typing import Self
 from src import datetime_utils
 from src.admin.services.base import BaseAdminService
 from src.ai.config.prompt import LLMPrompt, LLMPromptStorage
+from src.brands import Brand
+from src.config import get_app_settings
 from src.db.models import LLMPromptKey
 from src.db.repositories.prompt import LLMPromptRepository
-from src.libs.zendesk_client.models import Brand
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ class PromptAdminService(BaseAdminService):
     def list_prompt_keys(self) -> list[PromptListItem]:
         return [
             PromptListItem(brand=brand, key=key)
-            for brand in Brand.supported()
+            for brand in get_app_settings().brand.supported
             for key in LLMPromptKey
         ]
 
@@ -79,26 +80,28 @@ class PromptAdminService(BaseAdminService):
         updated_by: str,
         comment: str | None = None,
     ) -> PromptUpdateResult:
+        brand_id = get_app_settings().brand.id_for(brand)
         async with self.session.begin():
             await self.repo.set(
                 key=key,
-                brand_id=brand.value,
+                brand_id=brand_id,
                 text=text,
                 updated_by=updated_by,
                 comment=comment,
             )
-            entity = await self.repo.get(key=key, brand_id=brand.value)
+            entity = await self.repo.get(key=key, brand_id=brand_id)
             prompt = LLMPrompt.from_entity(entity)
 
         return PromptUpdateResult(prompt=prompt)
 
     async def _load_prompt(self, brand: Brand, key: LLMPromptKey) -> LLMPrompt:
+        brand_id = get_app_settings().brand.id_for(brand)
         if key == LLMPromptKey.INITIAL_REPLY:
-            return await self.storage.initial_reply_prompt(brand)
+            return await self.storage.initial_reply_prompt(brand, brand_id)
         if key == LLMPromptKey.FOLLOWUP_REPLY:
-            return await self.storage.followup_reply_prompt(brand)
+            return await self.storage.followup_reply_prompt(brand, brand_id)
         if key == LLMPromptKey.CLASSIFICATION:
-            return await self.storage.classification_prompt(brand)
+            return await self.storage.classification_prompt(brand, brand_id)
 
         raise ValueError(f"Unsupported LLMPromptKey: {key}")
 

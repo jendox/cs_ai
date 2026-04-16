@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.ai.ticket_classifier import LLMTicketClassifier
-from src.libs.zendesk_client.models import Brand, FromTo, Source, Ticket, Via
+from src.brands import Brand
+from src.libs.zendesk_client.models import FromTo, Source, Ticket, Via
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_decide_when_classification_disabled_treats_as_customer() -> None:
     classifier = LLMTicketClassifier(ctx)
     ticket = Ticket(
         id=1,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         subject="Hi",
         description="Help",
         via=Via(
@@ -37,7 +38,7 @@ async def test_decide_when_classification_disabled_treats_as_customer() -> None:
             ),
         ),
     )
-    decision = await classifier.decide(ticket)
+    decision = await classifier.decide(ticket, Brand.SUPERSELF)
     assert decision.is_service is False
     assert decision.error is None
     ctx.client_pool.get_client.assert_not_called()

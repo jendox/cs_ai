@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
 
 __all__ = (
     "Service",

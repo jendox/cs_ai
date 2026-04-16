@@ -8,6 +8,7 @@ import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
+from src.brands import Brand
 from src.db import session_local
 from src.db.repositories import (
     AcquireLockError,
@@ -20,7 +21,7 @@ from src.db.repositories import (
 from src.jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
 from src.jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand, Comment, Ticket, TicketStatus
+from src.libs.zendesk_client.models import Comment, Ticket, TicketStatus
 from src.logs.filters import log_ctx
 from src.services import Service
 from src.services.ticket_attachments import store_ticket_comment_attachments
@@ -54,10 +55,12 @@ class Poller(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
+        brand_id: int,
     ) -> None:
         super().__init__(name="zendesk_poller", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
+        self._brand_id = brand_id
         self.job_queue: RabbitJobQueue | None = None
 
     @staticmethod
@@ -116,7 +119,9 @@ class Poller(Service):
     async def _process_open_tickets(self, updated_after: datetime) -> tuple[datetime, set[int]]:
         lastest_seen = updated_after
         initial_reply_ticket_ids: set[int] = set()
-        async for ticket in self._zendesk_client.iter_updated_tickets(updated_after, self.brand, TicketStatus.active()):
+        async for ticket in self._zendesk_client.iter_updated_tickets(
+            updated_after, self._brand_id, TicketStatus.active(),
+        ):
             is_new = await self._upsert_ticket(ticket=ticket, observing=True)
             if is_new:
                 initial_reply_ticket_ids.add(ticket.id)
@@ -125,7 +130,7 @@ class Poller(Service):
                     message=InitialReplyMessage(
                         ticket=ticket,
                     ).model_dump(mode="json"),
-                    brand=self.brand,
+                    brand_id=self._brand_id,
                 )
             pivot = ticket.updated_at or ticket.created_at
             if pivot:
@@ -163,7 +168,7 @@ class Poller(Service):
     ) -> AsyncGenerator[tuple[Event, Ticket, Comment | None], None]:
         async for updated_ticket in self._zendesk_client.iter_updated_tickets(
             updated_after=updated_after,
-            brand=self.brand,
+            brand_id=self._brand_id,
             statuses=TicketStatus.all(),
         ):
             ticket_id = updated_ticket.id
@@ -189,7 +194,7 @@ class Poller(Service):
     async def _update_db_ticket(self, ticket: Ticket):
         update_ticket = Ticket(
             id=ticket.id,
-            brand=self.brand,
+            brand_id=self._brand_id,
             status=ticket.status.value,
             updated_at=ticket.updated_at,
         )
@@ -202,7 +207,7 @@ class Poller(Service):
                 message=TicketClosedMessage(
                     ticket_id=event.ticket_id,
                 ).model_dump(mode="json"),
-                brand=self.brand,
+                brand_id=self._brand_id,
             )
 
     async def _create_comment_job(self, event: Event) -> None:
@@ -216,7 +221,7 @@ class Poller(Service):
                     ticket_id=event.ticket_id,
                     source_id=event.source_id,
                 ).model_dump(mode="json"),
-                brand=self.brand,
+                brand_id=self._brand_id,
             )
         elif (
             event.kind == EventKind.COMMENT_PRIVATE
@@ -229,7 +234,7 @@ class Poller(Service):
                     ticket_id=event.ticket_id,
                     source_id=event.source_id,
                 ).model_dump(mode="json"),
-                brand=self.brand,
+                brand_id=self._brand_id,
             )
 
     async def _store_comment_attachments(
@@ -327,7 +332,7 @@ class Poller(Service):
         await checkpoints_repo.set_checkpoint(cp_events, latest_seen)
 
     async def run(self) -> None:
-        self.job_queue = await create_job_queue(self._amqp_url, self.brand)
+        self.job_queue = await create_job_queue(self._amqp_url, self._brand_id)
         while True:
             async with self._polling_iteration_context():
                 if await self._try_acquire_lock():
@@ -338,7 +343,7 @@ class Poller(Service):
             repo = LocksRepository(session)
             async with session.begin():
                 await repo.acquire_lock(
-                    name=f"poller:{self.brand.value}",
+                    name=f"poller:{self._brand_id}",
                     holder=f"poller:{os.getpid()}",
                     ttl_seconds=POLL_INTERVAL_SECONDS * 2,
                 )
@@ -349,7 +354,7 @@ class Poller(Service):
             repo = LocksRepository(session)
             async with session.begin():
                 await repo.release_lock(
-                    name=f"poller:{self.brand.value}",
+                    name=f"poller:{self._brand_id}",
                     holder=f"poller:{os.getpid()}",
                 )
         self.logger.debug("lock.released", extra={"brand": self.brand.value})
@@ -359,7 +364,7 @@ class Poller(Service):
             await self._acquire_lock()
             return True
         except AcquireLockError:
-            self.logger.warning("lock.busy", extra={"brand": self.brand.value})
+            self.logger.warning("lock.busy", extra={"brand": self.brand.value, "brand_id": self._brand_id})
             return False
 
     async def _cleanup_iteration(self, token) -> None:
@@ -397,7 +402,7 @@ class Poller(Service):
                     tickets_repo,
                     events_repo,
                     checkpoints_repo,
-                    f"tickets_cursor:{self.brand.value}",
-                    f"events_cursor:{self.brand.value}",
+                    f"tickets_cursor:{self._brand_id}",
+                    f"events_cursor:{self._brand_id}",
                 )
                 self.logger.debug("poller.iteration_done")

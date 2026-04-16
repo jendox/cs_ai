@@ -8,7 +8,7 @@ from src.ai.config.prompt import LLMPrompt
 from src.ai.context import LLMCallContext, LLMContext, llm_call_ctx
 from src.ai.llm_clients import LLMClientInterface
 from src.ai.tools import amazon_tools
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
 
 
 @asynccontextmanager

@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.brands import Brand
 from src.db.repositories import CLASSIFICATION_DECISION_CUSTOMER, CLASSIFICATION_DECISION_SERVICE
-from src.libs.zendesk_client.models import Brand, FromTo, Source, Ticket, Via
+from src.libs.zendesk_client.models import FromTo, Source, Ticket, Via
 from src.services.ticket_classification import TicketClassificationService
 from src.tickets_filter.filter import ServiceDecision
 
@@ -15,7 +16,7 @@ from src.tickets_filter.filter import ServiceDecision
 def _ticket() -> Ticket:
     return Ticket(
         id=2002,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         subject="Subject",
         description="Body",
         via=Via(

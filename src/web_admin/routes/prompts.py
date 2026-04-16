@@ -7,10 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import RedirectResponse
 
+from src import config
 from src.admin.services import PromptAdminService
 from src.ai.config.prompt import LLMPrompt
+from src.brands import Brand
 from src.db.models import AdminUser as AdminUserEntity, LLMPromptKey, UserRole
-from src.libs.zendesk_client.models import Brand
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
 from src.web_admin.session import SessionManager
 from src.web_admin.templates import templates
@@ -47,10 +48,11 @@ def _brand_or_none(value: str | int | None) -> Brand | None:
     if value in {None, ""}:
         return None
     try:
-        brand = Brand(int(value))
+        settings = config.get_app_settings()
+        brand = settings.brand.brand_for_id(int(value))
     except (TypeError, ValueError):
         return None
-    return brand if brand in Brand.supported() else None
+    return brand if brand in settings.brand.supported else None
 
 
 def _key_or_none(value: str | None) -> LLMPromptKey | None:
@@ -69,7 +71,8 @@ def _prompt_url(
     saved: bool = False,
     error: str | None = None,
 ) -> str:
-    url = f"/admin/prompts?brand={brand.value}&key={key.value}"
+    brand_id = config.get_app_settings().brand.id_for(brand)
+    url = f"/admin/prompts?brand={brand_id}&key={key.value}"
     if saved:
         return f"{url}&saved=1"
     if error:
@@ -115,7 +118,7 @@ async def get_prompts(  # noqa: PLR0913, PLR0917
     saved: str | None = None,
     error: str | None = None,
 ) -> Response:
-    brands = Brand.supported()
+    brands = config.get_app_settings().brand.supported
     keys = list(LLMPromptKey)
     selected_brand = _brand_or_none(brand) or brands[0]
     selected_key = _key_or_none(key) or keys[0]

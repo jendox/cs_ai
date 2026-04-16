@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from src.brands import Brand
 from src.jobs.models import JobType
-from src.libs.zendesk_client.models import Brand
 from src.logs.filters import log_ctx
 
 

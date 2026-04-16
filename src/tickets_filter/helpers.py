@@ -54,7 +54,7 @@ def make_log_record(
 ) -> dict:
     return {
         "ticket_id": ticket.id,
-        "brand_id": ticket.brand.value,
+        "brand_id": ticket.brand_id,
         "filter_rule": rule,
         "filter_reason": reason,
         "filter_channel": get_via_channel(ticket),

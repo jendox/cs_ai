@@ -4,9 +4,9 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from src.config import get_app_settings
 from src.db.models import UserRole
 from src.db.repositories import TicketNotFound, TicketsRepository
-from src.libs.zendesk_client.models import Brand
 from src.telegram.context import log_context
 from src.telegram.decorators import with_repository
 from src.telegram.filters import RoleRequired, TicketId
@@ -66,10 +66,8 @@ async def cmd_ticket_info(
         def format_date(dt):
             return dt.strftime("%d-%m-%Y %H:%M:%S") if dt else "-"
 
-        try:
-            brand_name = Brand(ticket.brand_id).name
-        except Exception:
-            brand_name = f"#{ticket.brand_id}"
+        brand = get_app_settings().brand.brand_for_id(ticket.brand_id)
+        brand_name = brand.name if brand is not None else f"#{ticket.brand_id}"
 
         observing_status = "yes" if ticket.observing else "no"
 

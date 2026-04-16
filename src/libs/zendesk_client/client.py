@@ -9,7 +9,7 @@ from httpx import Response
 
 from src.config import ZendeskSettings
 
-from .models import Brand, Comment, Ticket, TicketStatus
+from .models import Comment, Ticket, TicketStatus
 
 MAX_HTTPX_CONNECTIONS = 20
 DEFAULT_HTTPX_TIMEOUT = 10.0
@@ -159,7 +159,7 @@ class ZendeskClient:
     async def iter_updated_tickets(
         self,
         updated_after: datetime,
-        brand: Brand | None = None,
+        brand_id: int | None = None,
         statuses: set[TicketStatus] | None = None,
     ) -> AsyncGenerator[Ticket, None]:
         """Iterate over tickets updated after a given timestamp.
@@ -169,7 +169,7 @@ class ZendeskClient:
 
         Args:
             updated_after (datetime): Only tickets updated strictly after this timestamp are yielded.
-            brand (Brand | None, optional): If provided, only tickets belonging to this brand are included.
+            brand_id (int | None, optional): If provided, only tickets belonging to this brand are included.
             statuses (set[TicketStatus] | None, optional): Allowed ticket statuses. If provided, only
                 tickets whose status is in the set are yielded.
 
@@ -185,7 +185,7 @@ class ZendeskClient:
             for raw_ticket in batch_tickets:
                 try:
                     ticket = Ticket.model_validate(raw_ticket)
-                    if brand is not None and ticket.brand != brand:
+                    if brand_id is not None and ticket.brand_id != brand_id:
                         continue
                     if statuses is not None and ticket.status not in statuses:
                         continue

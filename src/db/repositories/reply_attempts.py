@@ -14,7 +14,6 @@ from src.db.models import (
 )
 from src.db.repositories.base import BaseRepository
 from src.jobs.models import JobType
-from src.libs.zendesk_client.models import Brand
 
 RECENT_REPLY_ATTEMPT_LIMIT = 50
 MAX_REPLY_ATTEMPT_LIMIT = 100
@@ -40,7 +39,7 @@ class ReplyAttemptFilters:
     ticket_id_prefix: str | None = None
     status: ReplyAttemptStatus | None = None
     job_type: JobType | None = None
-    brand: Brand | None = None
+    brand_id: int | None = None
     created_from: datetime | None = None
 
 
@@ -238,8 +237,8 @@ class TicketReplyAttemptsRepository(BaseRepository):
             conditions.append(TicketReplyAttemptEntity.status == filters.status)
         if filters.job_type is not None:
             conditions.append(TicketReplyAttemptEntity.job_type == filters.job_type.value)
-        if filters.brand is not None:
-            conditions.append(TicketReplyAttemptEntity.brand_id == filters.brand.value)
+        if filters.brand_id is not None:
+            conditions.append(TicketReplyAttemptEntity.brand_id == filters.brand_id)
         if filters.created_from is not None:
             conditions.append(TicketReplyAttemptEntity.created_at >= filters.created_from)
 

@@ -6,8 +6,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import RedirectResponse
 
+from src import config
 from src.admin.services.llm_playground import LLMPlaygroundService
 from src.ai.context import LLMContext
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import (
     AdminUser as AdminUserEntity,
@@ -22,7 +24,6 @@ from src.db.repositories import (
     LLMPlaygroundTicketCreate,
     LLMPlaygroundTicketNotFound,
 )
-from src.libs.zendesk_client.models import Brand
 from src.web_admin.dependencies import get_session_manager, require_csrf, require_role
 from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
@@ -69,7 +70,7 @@ def _parse_brand(value: str | None) -> Brand | None:
     if not value:
         return None
     try:
-        return Brand(int(value))
+        return config.get_app_settings().brand.brand_for_id(int(value))
     except (TypeError, ValueError):
         return None
 
@@ -118,10 +119,12 @@ async def get_playground(  # noqa: PLR0913, PLR0917
     error: str | None = None,
 ) -> Response:
     selected_limit = parse_page_limit(limit)
+    parsed_brand = _parse_brand(brand)
+    settings = config.get_app_settings()
     filters = LLMPlaygroundFilters(
         ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
-        brand=_parse_brand(brand),
+        brand_id=settings.brand.id_for(parsed_brand) if parsed_brand else None,
     )
 
     async with session_local() as session:
@@ -194,12 +197,13 @@ async def create_playground_ticket(
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
+    settings = config.get_app_settings()
     async with session_local() as session:
         async with session.begin():
             repo = LLMPlaygroundRepository(session)
             ticket = await repo.create_ticket(
                 LLMPlaygroundTicketCreate(
-                    brand=parsed_brand,
+                    brand_id=settings.brand.id_for(parsed_brand),
                     subject=normalized_subject,
                     body=normalized_body,
                     created_by=user.username,

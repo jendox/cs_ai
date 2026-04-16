@@ -8,7 +8,7 @@ import pytest
 
 from src.db.repositories import EventsRepository, TicketsRepository
 from src.db.sa import session_local
-from src.libs.zendesk_client.models import Brand, Comment, Ticket, TicketStatus
+from src.libs.zendesk_client.models import Comment, Ticket, TicketStatus
 from src.zendesk.models import comment_to_event
 
 
@@ -16,7 +16,7 @@ from src.zendesk.models import comment_to_event
 async def test_insert_event_is_idempotent_on_same_key(db_engine: None) -> None:
     ticket = Ticket(
         id=880_001,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         status=TicketStatus.OPEN,
         updated_at=datetime.now(tz=UTC),
     )
@@ -42,7 +42,7 @@ async def test_insert_event_is_idempotent_on_same_key(db_engine: None) -> None:
 async def test_get_comment_created_at(db_engine: None) -> None:
     ticket = Ticket(
         id=880_002,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         status=TicketStatus.OPEN,
         updated_at=datetime.now(tz=UTC),
     )

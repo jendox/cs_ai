@@ -22,7 +22,7 @@ from src.db.repositories.ticket_classification_audits import (
     CLASSIFICATION_SOURCE_MANUAL,
     CLASSIFICATION_SOURCE_RULE,
 )
-from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
+from src.libs.zendesk_client.models import Ticket, TicketStatus
 
 __all__ = (
     "TicketFilters",
@@ -41,7 +41,7 @@ MAX_TICKETS_LIMIT = 100
 class TicketFilters:
     ticket_id_prefix: str | None = None
     status: TicketStatus | None = None
-    brand: Brand | None = None
+    brand_id: int | None = None
     observing: bool | None = None
     classification_decision: str | None = None
     classification_source: str | None = None
@@ -109,7 +109,7 @@ class TicketsRepository(BaseRepository):
 
         stmt = pg_insert(TicketEntity).values(
             ticket_id=ticket.id,
-            brand_id=ticket.brand.value,
+            brand_id=ticket.brand_id,
             status=ticket.status.value,
             updated_at=ticket.updated_at,
             observing=observing,
@@ -119,7 +119,7 @@ class TicketsRepository(BaseRepository):
         stmt = stmt.on_conflict_do_update(
             index_elements=[TicketEntity.ticket_id],
             set_={
-                "brand_id": ticket.brand.value,
+                "brand_id": ticket.brand_id,
                 "status": ticket.status.value,
                 "updated_at": ticket.updated_at,
                 "last_seen_at": last_seen_at,
@@ -156,8 +156,8 @@ class TicketsRepository(BaseRepository):
             conditions.append(TicketEntity.ticket_id.cast(String).like(f"{filters.ticket_id_prefix}%"))
         if filters.status is not None:
             conditions.append(TicketEntity.status == filters.status.value)
-        if filters.brand is not None:
-            conditions.append(TicketEntity.brand_id == filters.brand.value)
+        if filters.brand_id is not None:
+            conditions.append(TicketEntity.brand_id == filters.brand_id)
         if filters.observing is not None:
             conditions.append(TicketEntity.observing.is_(filters.observing))
 

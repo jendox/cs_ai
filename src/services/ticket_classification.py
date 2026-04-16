@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
 from src.ai.ticket_classifier import LLMTicketClassifier
+from src.brands import Brand
 from src.db.repositories import (
     CLASSIFICATION_DECISION_CUSTOMER,
     CLASSIFICATION_DECISION_SERVICE,
@@ -13,7 +14,7 @@ from src.db.repositories import (
     TicketClassificationAuditCreate,
     TicketClassificationAuditsRepository,
 )
-from src.libs.zendesk_client.models import Brand, Ticket
+from src.libs.zendesk_client.models import Ticket
 from src.tickets_filter.cache import tickets_filter_cache
 
 
@@ -44,7 +45,7 @@ class TicketClassificationService:
         await TicketClassificationAuditsRepository(session).create(
             TicketClassificationAuditCreate(
                 ticket_id=ticket.id,
-                brand_id=brand.value,
+                brand_id=ticket.brand_id,
                 decision=result.decision,
                 source=result.source,
                 rule=result.rule,
@@ -63,7 +64,7 @@ class TicketClassificationService:
         ticket: Ticket,
         brand: Brand,
     ) -> TicketClassificationResult:
-        tickets_filter = await tickets_filter_cache.get_filter(session, brand)
+        tickets_filter = await tickets_filter_cache.get_filter(session, ticket.brand_id)
         rule_decision = tickets_filter.classify_ticket(ticket)
         if rule_decision.is_service:
             return TicketClassificationResult(
@@ -82,7 +83,7 @@ class TicketClassificationService:
                 detail=rule_decision.detail,
             )
 
-        llm_decision = await self._ticket_classifier.decide(ticket)
+        llm_decision = await self._ticket_classifier.decide(ticket, brand)
         if llm_decision.error is not None:
             return TicketClassificationResult(
                 is_service=False,

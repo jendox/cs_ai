@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import LLMPromptKey
 from src.db.repositories import (
@@ -18,7 +19,7 @@ from src.db.repositories import (
 from src.jobs.models import InitialReplyMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand, Ticket
+from src.libs.zendesk_client.models import Ticket
 from src.services import Service
 from src.services.ticket_classification import TicketClassificationService
 
@@ -33,6 +34,7 @@ class InitialReplyWorker(Service):
         amqp_url: str,
         llm_context: LLMContext,
         brand: Brand,
+        brand_id: int,
     ) -> None:
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
@@ -40,15 +42,16 @@ class InitialReplyWorker(Service):
         self._ticket_classification_service = TicketClassificationService(llm_context)
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
+        self._brand_id = brand_id
         self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
-        job_queue = await create_job_queue(self._amqp_url, self.brand)
+        job_queue = await create_job_queue(self._amqp_url, self._brand_id)
 
         await job_queue.consume(
             JobType.INITIAL_REPLY,
             handler=self._handler,
-            brand=self.brand,
+            brand_id=self._brand_id,
             prefetch=2,
         )
 
@@ -82,7 +85,7 @@ class InitialReplyWorker(Service):
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket.id,
-                            brand_id=self.brand.value,
+                            brand_id=self._brand_id,
                             job_type=JobType.INITIAL_REPLY.value,
                             channel=channel,
                             prompt_key=LLMPromptKey.INITIAL_REPLY.value,
@@ -146,7 +149,7 @@ class InitialReplyWorker(Service):
     async def _generate_initial_reply(self, ticket: Ticket) -> str:
         try:
             content = self._build_initial_reply_message(ticket)
-            system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(self.brand)
+            system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(self.brand, self._brand_id)
             reply = await self._reply_generator.generate(
                 messages=[{"role": "user", "content": content}],
                 system_prompt=system_prompt,

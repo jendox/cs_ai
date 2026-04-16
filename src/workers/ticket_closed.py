@@ -3,12 +3,12 @@ from typing import cast
 
 from pydantic import ValidationError
 
+from src.brands import Brand
 from src.db import session_local
 from src.db.repositories import TicketsRepository
 from src.jobs.models import JobType, TicketClosedMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand
 from src.services import Service
 
 from .log_context import log_context
@@ -20,19 +20,21 @@ class TicketClosedWorker(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
+        brand_id: int,
     ) -> None:
         super().__init__(name="ticket_closed", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
+        self._brand_id = brand_id
         self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
-        job_queue = await create_job_queue(self._amqp_url, self.brand)
+        job_queue = await create_job_queue(self._amqp_url, self._brand_id)
 
         await job_queue.consume(
             JobType.TICKET_CLOSED,
             handler=self._handler,
-            brand=self.brand,
+            brand_id=self._brand_id,
             prefetch=2,
         )
 

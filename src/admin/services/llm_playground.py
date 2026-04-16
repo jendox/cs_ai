@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai import utils
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
+from src.brands import Brand
+from src.config import get_app_settings
 from src.db.models import (
     LLMPlaygroundMessage,
     LLMPlaygroundMessageRole,
@@ -17,7 +19,6 @@ from src.db.models import (
     LLMPromptKey,
 )
 from src.db.repositories import LLMPlaygroundMessageCreate, LLMPlaygroundRepository, LLMPlaygroundRunCreate
-from src.libs.zendesk_client.models import Brand
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class LLMPlaygroundService:
         messages: list[LLMPlaygroundMessage],
         created_by: str,
     ) -> LLMPlaygroundGenerationResult:
-        brand = Brand(ticket.brand_id)
+        brand = get_app_settings().brand.require_brand_for_id(ticket.brand_id)
         first_user_message = self._first_user_message(messages)
         input_messages = [
             {
@@ -55,7 +56,7 @@ class LLMPlaygroundService:
                 ),
             },
         ]
-        system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(brand)
+        system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(brand, ticket.brand_id)
         return await self._generate_and_store(
             ticket=ticket,
             prompt_key=LLMPromptKey.INITIAL_REPLY.value,
@@ -72,12 +73,12 @@ class LLMPlaygroundService:
         messages: list[LLMPlaygroundMessage],
         created_by: str,
     ) -> LLMPlaygroundGenerationResult:
-        brand = Brand(ticket.brand_id)
+        brand = get_app_settings().brand.require_brand_for_id(ticket.brand_id)
         input_messages = self._build_followup_messages(messages)
         if not input_messages:
             return LLMPlaygroundGenerationResult(reply="", error="Conversation is empty.")
 
-        system_prompt = await self._llm_context.prompt_storage.followup_reply_prompt(brand)
+        system_prompt = await self._llm_context.prompt_storage.followup_reply_prompt(brand, ticket.brand_id)
         return await self._generate_and_store(
             ticket=ticket,
             prompt_key=LLMPromptKey.FOLLOWUP_REPLY.value,

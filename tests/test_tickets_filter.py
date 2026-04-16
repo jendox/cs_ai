@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.libs.zendesk_client.models import Brand, FromTo, Source, Ticket, Via
+from src.libs.zendesk_client.models import FromTo, Source, Ticket, Via
 from src.tickets_filter.config import FilterConfig, TicketsFilterRuleKind
 from src.tickets_filter.dto import TicketsFilterRuleDTO
 from src.tickets_filter.filter import TicketsFilter
@@ -18,7 +18,7 @@ def _ticket(
 ) -> Ticket:
     return Ticket(
         id=1001,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         subject=subject,
         description=description,
         tags=tags or [],

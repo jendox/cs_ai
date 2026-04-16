@@ -1,12 +1,15 @@
 from src.ai.config.prompt import LLMPromptKey
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
+from src.config import get_app_settings
 
 
 def _build_brand_map() -> dict[str, Brand]:
+    settings = get_app_settings()
     mapping: dict[str, Brand] = {}
-    for brand in Brand.supported():
+    for brand in settings.brand.supported:
         mapping[brand.name.lower()] = brand
-        mapping[str(brand.value).lower()] = brand
+        mapping[brand.value] = brand
+        mapping[str(settings.brand.id_for(brand))] = brand
     return mapping
 
 

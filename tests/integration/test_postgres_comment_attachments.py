@@ -8,14 +8,14 @@ import pytest
 
 from src.db.repositories import TicketCommentAttachmentsRepository, TicketsRepository
 from src.db.sa import session_local
-from src.libs.zendesk_client.models import Attachment, Brand, Comment, Ticket, TicketStatus
+from src.libs.zendesk_client.models import Attachment, Comment, Ticket, TicketStatus
 
 
 @pytest.mark.asyncio
 async def test_comment_attachments_upsert_is_idempotent(db_engine: None) -> None:
     ticket = Ticket(
         id=880_020,
-        brand=Brand.SUPERSELF,
+        brand_id=12345,
         status=TicketStatus.OPEN,
         updated_at=datetime.now(tz=UTC),
     )

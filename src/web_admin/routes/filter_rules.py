@@ -7,7 +7,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from src import datetime_utils
+from src import config, datetime_utils
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import AdminUser as AdminUserEntity, UserRole
 from src.db.repositories import (
@@ -15,7 +16,6 @@ from src.db.repositories import (
     TicketsFilterRuleNotFound,
     TicketsFilterRuleRepository,
 )
-from src.libs.zendesk_client.models import Brand
 from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
 from src.tickets_filter.config import TicketsFilterRuleKind
 from src.tickets_filter.dto import TicketsFilterRuleDTO
@@ -72,7 +72,7 @@ def _parse_brand(value: str | None) -> Brand | None:
     if not value:
         return None
     try:
-        return Brand(int(value))
+        return config.get_app_settings().brand.brand_for_id(int(value))
     except (TypeError, ValueError):
         return None
 
@@ -105,7 +105,9 @@ def _normalize_via_channel(value: str | None) -> str | None:
 
 def _normalize_brand_id(value: str | None) -> int | None:
     brand = _parse_brand(value)
-    return brand.value if brand is not None else None
+    if brand is None:
+        return None
+    return config.get_app_settings().brand.id_for(brand)
 
 
 def _validate_rule_value(value: str, *, is_regex: bool) -> str | None:
@@ -202,10 +204,11 @@ def _rule_test_success_response(*, matches: bool, wants_json: bool) -> Response:
 
 
 async def _touch_filter_checkpoints(session) -> None:
+    settings = config.get_app_settings()
     now = datetime_utils.utcnow()
     checkpoints_repo = CheckpointsRepository(session)
-    for brand in Brand:
-        await checkpoints_repo.set_checkpoint(get_checkpoint_name(brand), now)
+    for brand in settings.brand.supported:
+        await checkpoints_repo.set_checkpoint(get_checkpoint_name(settings.brand.id_for(brand)), now)
     tickets_filter_cache.clear()
 
 
@@ -234,7 +237,7 @@ async def get_filter_rules(  # noqa: PLR0913, PLR0917
         repo = TicketsFilterRuleRepository(session)
         all_rules = await repo.list_rules(
             kind=_parse_kind(kind).value if _parse_kind(kind) is not None else None,
-            brand_id=_parse_brand(brand).value if _parse_brand(brand) is not None else None,
+            brand_id=_normalize_brand_id(brand),
             is_active=_parse_active(active),
             search=selected_search or None,
         )

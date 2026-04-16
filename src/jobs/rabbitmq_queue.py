@@ -12,7 +12,6 @@ from aio_pika.abc import (
 )
 
 from src.jobs.models import JobType
-from src.libs.zendesk_client.models import Brand
 
 RETRY_DELAYS = [60, 300, 900]  # 1m, 5m, 15m (seconds) — production values
 # RETRY_DELAYS = [10, 15, 20]  # short values for testing
@@ -83,7 +82,7 @@ class RabbitJobQueue:
 
     # ---------- Public API ----------
 
-    async def setup_brand_topology(self, job_types: set[JobType], brand: Brand) -> None:
+    async def setup_brand_topology(self, job_types: set[JobType], brand_id: int) -> None:
         """
         Pre-declare the full queue topology for the given brand and job types.
 
@@ -108,10 +107,10 @@ class RabbitJobQueue:
 
         Args:
             job_types: A set of job types for which to declare queues.
-            brand:     Brand for which topology should be created.
+            brand_id:  Zendesk brand ID for which topology should be created.
         """
         for job_type in job_types:
-            await self._declare_brand_topology(job_type, brand)
+            await self._declare_brand_topology(job_type, brand_id)
 
     @asynccontextmanager
     async def context(self) -> AsyncGenerator["RabbitJobQueue", None]:
@@ -133,7 +132,7 @@ class RabbitJobQueue:
         finally:
             await self.close()
 
-    async def publish(self, job_type: JobType, message: dict, *, brand: Brand) -> bool:
+    async def publish(self, job_type: JobType, message: dict, *, brand_id: int) -> bool:
         """
         Publish a job message to the main exchange for the given job type and brand.
 
@@ -154,13 +153,13 @@ class RabbitJobQueue:
         Args:
             job_type: The type of job to publish.
             message:  Payload to send; must be JSON-serializable.
-            brand:    Brand to which the job belongs (used for routing).
+            brand_id: Zendesk brand ID (used for routing).
 
         Returns:
             True if the message was successfully published at least once,
             False if all publish attempts failed.
         """
-        routing_key = f"{job_type.value}.{brand.value}"
+        routing_key = f"{job_type.value}.{brand_id}"
         body_str = json.dumps(message, ensure_ascii=False)
         body_bytes = body_str.encode()
 
@@ -174,7 +173,7 @@ class RabbitJobQueue:
                     correlation_id=message.get("dedup_key"),
                     headers={
                         "attempt": 0,
-                        "brand": brand.value,
+                        "brand": brand_id,
                         "job_type": job_type.value,
                     },
                 )
@@ -186,7 +185,7 @@ class RabbitJobQueue:
                     "msg.publish",
                     extra={
                         "job_type": job_type.value,
-                        "brand": brand.value,
+                        "brand": brand_id,
                         "correlation_id": message.get("dedup_key"),
                     },
                 )
@@ -209,7 +208,7 @@ class RabbitJobQueue:
                 "routing_key": routing_key,
                 "body": body_str,
                 "job_type": job_type.value,
-                "brand": brand.value,
+                "brand": brand_id,
                 "total_attempts": MAX_PUBLISH_ATTEMPTS,
                 "correlation_id": message.get("dedup_key"),
             },
@@ -221,7 +220,7 @@ class RabbitJobQueue:
         job_type: JobType,
         handler: Callable[[dict], Awaitable[bool]],
         *,
-        brand: Brand,
+        brand_id: int,
         prefetch: int = 4,
     ) -> None:
         """
@@ -250,7 +249,7 @@ class RabbitJobQueue:
         Args:
             job_type: Type of job to consume.
             handler:  Async callable that processes a single job payload.
-            brand:    Brand to consume jobs for (isolates queues per brand).
+            brand_id: Zendesk brand ID to consume jobs for (isolates queues per brand).
             prefetch: Per-consumer prefetch (QoS) value; controls in-flight messages.
 
         Raises:
@@ -261,10 +260,10 @@ class RabbitJobQueue:
         await channel.set_qos(prefetch)
 
         # Single topology declaration entry-point (idempotent).
-        await self._declare_brand_topology(job_type, brand)
+        await self._declare_brand_topology(job_type, brand_id)
 
         # Main queue for this job type and brand.
-        queue_name = f"jobs.{job_type.value}.{brand.value}"
+        queue_name = f"jobs.{job_type.value}.{brand_id}"
         queue = await channel.declare_queue(
             name=queue_name,
             durable=True,
@@ -419,7 +418,7 @@ class RabbitJobQueue:
 
     # ---------- Brand-local topology ----------
 
-    async def _declare_brand_topology(self, job_type: JobType, brand: Brand) -> None:
+    async def _declare_brand_topology(self, job_type: JobType, brand_id: int) -> None:
         """
         Declare queues and bindings for a single (job_type, brand) pair.
 
@@ -453,10 +452,10 @@ class RabbitJobQueue:
 
         Args:
             job_type: Job type to declare topology for.
-            brand:    Brand for which topology is being declared.
+            brand_id: Zendesk brand ID for which topology is being declared.
         """
         job_value = job_type.value
-        brand_value = brand.value
+        brand_value = brand_id
 
         self.logger.debug(
             "topology.declare.brand.start",
@@ -706,7 +705,7 @@ class RabbitJobQueue:
         await self._dlx_exchange.publish(dead_msg, routing_key=routing_key)
 
 
-async def create_job_queue(rabbitmq_url: str, brand: Brand) -> RabbitJobQueue:
+async def create_job_queue(rabbitmq_url: str, brand_id: int) -> RabbitJobQueue:
     """
     Factory function that creates and initializes a RabbitJobQueue instance.
 
@@ -715,18 +714,18 @@ async def create_job_queue(rabbitmq_url: str, brand: Brand) -> RabbitJobQueue:
         1. Instantiate `RabbitJobQueue` with the provided RabbitMQ URL.
         2. Pre-declare topology for all job types for the given brand via:
 
-               job_queue.setup_brand_topology(JobType.all(), brand)
+               job_queue.setup_brand_topology(JobType.all(), brand_id)
 
     This is a convenient entry-point for both producers and consumers, ensuring
     all required queues/exchanges exist before normal operation.
 
     Args:
         rabbitmq_url: AMQP URL for RabbitMQ connection.
-        brand:        Brand for which queues should be prepared.
+        brand_id:     Zendesk brand ID for which queues should be prepared.
 
     Returns:
         A fully initialized `RabbitJobQueue` instance.
     """
     job_queue = RabbitJobQueue(rabbitmq_url)
-    await job_queue.setup_brand_topology(JobType.all(), brand)
+    await job_queue.setup_brand_topology(JobType.all(), brand_id)
     return job_queue

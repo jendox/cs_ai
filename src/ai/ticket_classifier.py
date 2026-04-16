@@ -11,7 +11,8 @@ from src.ai.config import RuntimeClassificationSettings
 from src.ai.context import LLMContext
 from src.ai.llm_clients.interfaces import LLMClientInterface
 from src.ai.utils import extract_json_block
-from src.libs.zendesk_client.models import Brand, Ticket
+from src.brands import Brand
+from src.libs.zendesk_client.models import Ticket
 
 
 class MessageCategory(StrEnum):
@@ -55,8 +56,8 @@ class LLMTicketClassifier:
     async def _classification_settings(self) -> RuntimeClassificationSettings:
         return await self._llm_context.runtime_storage.get_classification()
 
-    async def _build_classification_prompt(self, brand: Brand) -> str:
-        prompt_template = await self._llm_context.prompt_storage.classification_prompt(brand)
+    async def _build_classification_prompt(self, brand: Brand, brand_id: int) -> str:
+        prompt_template = await self._llm_context.prompt_storage.classification_prompt(brand, brand_id)
         return prompt_template.text.format(
             customer_support=MessageCategory.CUSTOMER_SUPPORT.value,
             marketing_or_spam=MessageCategory.MARKETING_OR_SPAM.value,
@@ -64,7 +65,7 @@ class LLMTicketClassifier:
         )
 
     @staticmethod
-    def _build_classification_message(ticket: Ticket) -> str:
+    def _build_classification_message(ticket: Ticket, brand: Brand) -> str:
         via_channel = ticket.via.channel if ticket.via and ticket.via.channel else "unknown"
         sender = ticket.via.source.from_ if ticket.via and ticket.via.source else None
         sender_email = sender.address if sender else ""
@@ -75,7 +76,7 @@ class LLMTicketClassifier:
         return dedent(f"""
                 [TICKET]
                 id: {ticket.id}
-                brand: {ticket.brand.name if ticket.brand else ""}
+                brand: {brand.label}
                 channel: {via_channel}
                 created_at: {ticket.created_at}
 
@@ -96,10 +97,11 @@ class LLMTicketClassifier:
         client: LLMClientInterface,
         ticket: Ticket,
         settings: RuntimeClassificationSettings,
+        brand: Brand,
     ) -> LLMClassificationResult:
-        content = self._build_classification_message(ticket)
+        content = self._build_classification_message(ticket, brand)
         try:
-            system_prompt = await self._build_classification_prompt(ticket.brand)
+            system_prompt = await self._build_classification_prompt(brand, ticket.brand_id)
             text = await client.chat(
                 messages=[{"content": content, "role": "user"}],
                 settings=settings,
@@ -114,7 +116,7 @@ class LLMTicketClassifier:
             self.logger.warning("llm_classify.error: %s", error, extra={"error": error})
             return LLMClassificationResult(classification=None, error=error)
 
-    async def decide(self, ticket: Ticket) -> LLMTicketDecision:
+    async def decide(self, ticket: Ticket, brand: Brand) -> LLMTicketDecision:
         settings = await self._classification_settings()
         if not settings.enabled:
             self.logger.info("settings.disabled")
@@ -125,7 +127,7 @@ class LLMTicketClassifier:
                 threshold=settings.threshold,
             )
         client, cfg = utils.resolve_llm_client_and_cfg(self._llm_context, settings)
-        result = await self._classify(client, ticket, cfg)
+        result = await self._classify(client, ticket, cfg, brand)
         if result.classification is None:
             return LLMTicketDecision(
                 is_service=False,

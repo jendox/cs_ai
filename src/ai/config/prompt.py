@@ -5,10 +5,10 @@ from typing import Self
 
 from pydantic import BaseModel, Field
 
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import LLMPrompt as LLMPromptEntity, LLMPromptKey
 from src.db.repositories.prompt import LLMPromptNotExists, LLMPromptRepository
-from src.libs.zendesk_client.models import Brand
 
 CLASSIFICATION_PROMPT_TEMPLATE: dict[Brand, str] = {
     Brand.SUPERSELF: dedent("""
@@ -292,50 +292,50 @@ class LLMPromptStorage:
     def __init__(self):
         self.logger = logging.getLogger("llm_prompt_storage")
 
-    async def initial_reply_prompt(self, brand: Brand) -> LLMPrompt:
+    async def initial_reply_prompt(self, brand: Brand, brand_id: int) -> LLMPrompt:
         try:
-            entity = await self._get(LLMPromptKey.INITIAL_REPLY, brand)
+            entity = await self._get(LLMPromptKey.INITIAL_REPLY, brand_id)
             prompt = LLMPrompt.from_entity(entity)
         except LLMPromptNotExists:
             prompt = LLMPrompt(
                 key=LLMPromptKey.INITIAL_REPLY,
-                brand_id=brand.value,
+                brand_id=brand_id,
                 text=INITIAL_REPLY_PROMPT[brand],
             )
             await self.save(prompt)
         return prompt
 
-    async def followup_reply_prompt(self, brand: Brand) -> LLMPrompt:
+    async def followup_reply_prompt(self, brand: Brand, brand_id: int) -> LLMPrompt:
         try:
-            entity = await self._get(LLMPromptKey.FOLLOWUP_REPLY, brand)
+            entity = await self._get(LLMPromptKey.FOLLOWUP_REPLY, brand_id)
             prompt = LLMPrompt.from_entity(entity)
         except LLMPromptNotExists:
             prompt = LLMPrompt(
                 key=LLMPromptKey.FOLLOWUP_REPLY,
-                brand_id=brand.value,
+                brand_id=brand_id,
                 text=FOLLOWUP_REPLY_PROMPT[brand],
             )
             await self.save(prompt)
         return prompt
 
-    async def classification_prompt(self, brand: Brand) -> LLMPrompt:
+    async def classification_prompt(self, brand: Brand, brand_id: int) -> LLMPrompt:
         try:
-            entity = await self._get(LLMPromptKey.CLASSIFICATION, brand)
+            entity = await self._get(LLMPromptKey.CLASSIFICATION, brand_id)
             prompt = LLMPrompt.from_entity(entity)
         except LLMPromptNotExists:
             prompt = LLMPrompt(
                 key=LLMPromptKey.CLASSIFICATION,
-                brand_id=brand.value,
+                brand_id=brand_id,
                 text=CLASSIFICATION_PROMPT_TEMPLATE[brand],
             )
             await self.save(prompt)
         return prompt
 
     @staticmethod
-    async def _get(key: LLMPromptKey, brand: Brand) -> LLMPromptEntity:
+    async def _get(key: LLMPromptKey, brand_id: int) -> LLMPromptEntity:
         async with session_local() as session:
             repo = LLMPromptRepository(session)
-            return await repo.get(key, brand.value)
+            return await repo.get(key, brand_id)
 
     async def save(
         self,

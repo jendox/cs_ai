@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.libs.zendesk_client.models import Brand
+from src.brands import Brand
 from src.workers.followup_reply import FollowUpDecision, FollowUpReplyWorker
 
 
@@ -21,6 +21,7 @@ async def test_followup_retry_when_source_event_missing() -> None:
         amqp_url="amqp://",
         llm_context=MagicMock(),
         brand=Brand.SUPERSELF,
+        brand_id=12345,
     )
     decision = await worker._should_process_followup(
         events_repo=events,
@@ -44,6 +45,7 @@ async def test_followup_skip_when_no_bot_post_before_comment() -> None:
         amqp_url="amqp://",
         llm_context=MagicMock(),
         brand=Brand.SUPERSELF,
+        brand_id=12345,
     )
     decision = await worker._should_process_followup(
         events_repo=events,
@@ -66,6 +68,7 @@ async def test_followup_process_when_bot_post_exists_before_comment() -> None:
         amqp_url="amqp://",
         llm_context=MagicMock(),
         brand=Brand.SUPERSELF,
+        brand_id=12345,
     )
     decision = await worker._should_process_followup(
         events_repo=events,

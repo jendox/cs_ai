@@ -6,12 +6,6 @@ import os
 
 import pytest
 
-# Zendesk client brand IDs are read at import time; keep tests deterministic in CI.
-os.environ.setdefault("BRAND__SUPERSELF_ID", "23064017794844")
-os.environ.setdefault("BRAND__SMARTPARTS_ID", "23063999037340")
-os.environ.setdefault("BRAND__CLEOCORA_ID", "23063999037000")
-os.environ.setdefault("BRAND__SUPPORTED", "SUPERSELF")
-
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if os.environ.get("CS_INTEGRATION") == "1":

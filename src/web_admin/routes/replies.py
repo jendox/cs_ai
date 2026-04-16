@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
 
+from src import config
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import (
     AdminUser as AdminUserEntity,
@@ -18,7 +20,6 @@ from src.db.repositories import (
     TicketReplyAttemptsRepository,
 )
 from src.jobs.models import JobType
-from src.libs.zendesk_client.models import Brand
 from src.web_admin.dependencies import get_session_manager, require_role
 from src.web_admin.pagination import DEFAULT_PAGE_LIMIT, PAGE_LIMIT_OPTIONS, parse_page_limit
 from src.web_admin.session import SessionManager
@@ -76,7 +77,7 @@ def _parse_brand(value: str | None) -> Brand | None:
     if not value:
         return None
     try:
-        return Brand(int(value))
+        return config.get_app_settings().brand.brand_for_id(int(value))
     except (TypeError, ValueError):
         return None
 
@@ -120,7 +121,7 @@ def _replies_url(  # noqa: PLR0913
 
 
 @router.get("")
-async def get_replies(  # noqa: PLR0913, PLR0917
+async def get_replies(  # noqa: PLR0913, PLR0914, PLR0917
     request: Request,
     user: Annotated[AdminUserEntity, Depends(require_role(UserRole.USER))],
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
@@ -134,12 +135,14 @@ async def get_replies(  # noqa: PLR0913, PLR0917
 ) -> Response:
     selected_limit = parse_page_limit(limit)
     selected_period = _parse_period(period)
+    parsed_brand = _parse_brand(brand)
+    settings = config.get_app_settings()
     filters = ReplyAttemptFilters(
         ticket_id=None,
         ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
         job_type=_parse_job_type(job_type),
-        brand=_parse_brand(brand),
+        brand_id=settings.brand.id_for(parsed_brand) if parsed_brand else None,
         created_from=_period_created_from(selected_period),
     )
 

@@ -5,6 +5,8 @@ from typing import Self
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.brands import Brand
+
 
 class ZendeskSettings(BaseModel):
     email: EmailStr
@@ -122,6 +124,35 @@ class WebAdminSettings(BaseModel):
     cookie_secure: bool = False
 
 
+class BrandSettings(BaseModel):
+    superself: int
+    smartparts: int
+    cleocora: int
+    supported: list[Brand] = [Brand.SUPERSELF]
+
+    def id_for(self, brand: Brand) -> int:
+        return self._brand_to_id()[brand]
+
+    def brand_for_id(self, brand_id: int) -> Brand | None:
+        return self._id_to_brand().get(brand_id)
+
+    def require_brand_for_id(self, brand_id: int) -> Brand:
+        brand = self.brand_for_id(brand_id)
+        if brand is None:
+            raise ValueError(f"Unknown brand_id: {brand_id}")
+        return brand
+
+    def _brand_to_id(self) -> dict[Brand, int]:
+        return {
+            Brand.SUPERSELF: self.superself,
+            Brand.SMARTPARTS: self.smartparts,
+            Brand.CLEOCORA: self.cleocora,
+        }
+
+    def _id_to_brand(self) -> dict[int, Brand]:
+        return {v: k for k, v in self._brand_to_id().items()}
+
+
 class AppSettings(BaseSettings):
     app_debug: bool = False
     init_ref_update: bool = False
@@ -132,6 +163,7 @@ class AppSettings(BaseSettings):
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
+    brand: BrandSettings = Field(default_factory=BrandSettings)
     web: WebAdminSettings = Field(default_factory=WebAdminSettings)
 
     model_config = SettingsConfigDict(

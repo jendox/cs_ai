@@ -16,7 +16,6 @@ from src.db.models import (
     LLMPlaygroundTicketStatus,
 )
 from src.db.repositories.base import BaseRepository
-from src.libs.zendesk_client.models import Brand
 
 RECENT_PLAYGROUND_TICKETS_LIMIT = 50
 MAX_PLAYGROUND_TICKETS_LIMIT = 100
@@ -27,7 +26,7 @@ class LLMPlaygroundTicketNotFound(Exception): ...
 
 @dataclass(frozen=True)
 class LLMPlaygroundTicketCreate:
-    brand: Brand
+    brand_id: int
     subject: str
     body: str
     created_by: str
@@ -61,7 +60,7 @@ class LLMPlaygroundMessageCreate:
 class LLMPlaygroundFilters:
     ticket_id_prefix: str | None = None
     status: LLMPlaygroundTicketStatus | None = None
-    brand: Brand | None = None
+    brand_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -87,7 +86,7 @@ class LLMPlaygroundRepository(BaseRepository):
     async def create_ticket(self, data: LLMPlaygroundTicketCreate) -> LLMPlaygroundTicket:
         now = datetime_utils.utcnow()
         ticket = LLMPlaygroundTicket(
-            brand_id=data.brand.value,
+            brand_id=data.brand_id,
             subject=data.subject,
             status=LLMPlaygroundTicketStatus.OPEN,
             created_by=data.created_by,
@@ -185,8 +184,8 @@ class LLMPlaygroundRepository(BaseRepository):
             conditions.append(LLMPlaygroundTicket.id.cast(String).like(f"{filters.ticket_id_prefix}%"))
         if filters.status is not None:
             conditions.append(LLMPlaygroundTicket.status == filters.status)
-        if filters.brand is not None:
-            conditions.append(LLMPlaygroundTicket.brand_id == filters.brand.value)
+        if filters.brand_id is not None:
+            conditions.append(LLMPlaygroundTicket.brand_id == filters.brand_id)
         return conditions
 
     async def list_tickets(

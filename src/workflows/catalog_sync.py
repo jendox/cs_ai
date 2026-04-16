@@ -2,13 +2,14 @@ import logging
 
 import anyio
 
+from src.brands import Brand
+from src.config import get_app_settings
 from src.db import session_local
 from src.db.repositories import AcquireLockError, LocksRepository
 from src.db.repositories.merchant_listing import MerchantListingRepository
 
 from .schemes import MarketplaceId, MerchantListingRow
 from ..ai.amazon_mcp_client import AmazonMCPHttpClient
-from ..libs.zendesk_client.models import Brand
 
 CATALOG_SYNC_LOCK_TTL = 3600
 
@@ -31,8 +32,9 @@ async def _sync_single_marketplace(
     marketplace: MarketplaceId,
     amazon_mcp_client: AmazonMCPHttpClient,
 ) -> None:
-    extra = {"brand_id": brand.value, "marketplace_id": marketplace.value}
-    lock_name = f"merchant_listing_sync:{brand.value}:{marketplace.value}"
+    brand_id = get_app_settings().brand.id_for(brand)
+    extra = {"brand_id": brand_id, "marketplace_id": marketplace.value}
+    lock_name = f"merchant_listing_sync:{brand_id}:{marketplace.value}"
     lock_holer = "catalog_sync"
 
     async with session_local() as session:
@@ -54,7 +56,7 @@ async def _sync_single_marketplace(
 
                 repo = MerchantListingRepository(session)
                 await repo.upsert_many(
-                    brand_id=brand.value,
+                    brand_id=brand_id,
                     marketplace_id=str(marketplace.value),
                     rows=[MerchantListingRow.model_validate(row) for row in rows],
                 )

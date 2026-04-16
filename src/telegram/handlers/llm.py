@@ -11,8 +11,8 @@ from pydantic import ValidationError
 
 from src.admin.services import ClassificationSettingsPatch, LLMAdminService, PromptAdminService, ResponseSettingsPatch
 from src.ai.config import RuntimeClassificationSettings, RuntimeResponseSettings
+from src.brands import Brand
 from src.db.models import LLMPromptKey, UserRole
-from src.libs.zendesk_client.models import Brand
 from src.telegram.context import log_context
 from src.telegram.filters import THREE_PARAMS_PARTS_COUNT, TWO_PARAMS_PARTS_COUNT, RoleRequired
 from src.telegram.handlers.utils import get_telegram_id

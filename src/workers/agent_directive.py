@@ -3,10 +3,10 @@ from contextlib import contextmanager
 
 from pydantic import ValidationError
 
+from src.brands import Brand
 from src.jobs.models import AgentDirectiveMessage, JobType
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand
 from src.logs.filters import log_ctx
 from src.services import Service
 
@@ -34,18 +34,20 @@ class AgentDirectiveWorker(Service):
         zendesk_client: ZendeskClient,
         amqp_url: str,
         brand: Brand,
+        brand_id: int,
     ) -> None:
         super().__init__(name="agent_directive", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
+        self._brand_id = brand_id
 
     async def run(self) -> None:
-        job_queue = await create_job_queue(self._amqp_url, self.brand)
+        job_queue = await create_job_queue(self._amqp_url, self._brand_id)
 
         await job_queue.consume(
             JobType.AGENT_DIRECTIVE,
             handler=self._handler,
-            brand=self.brand,
+            brand_id=self._brand_id,
             prefetch=2,
         )
 

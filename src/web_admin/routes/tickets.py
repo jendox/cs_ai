@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from src import config
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import (
     AdminUser as AdminUserEntity,
@@ -40,7 +41,7 @@ from src.db.repositories import (
 )
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
-from src.libs.zendesk_client.models import AGENT_IDS, Attachment, Brand, Comment, Ticket, TicketStatus
+from src.libs.zendesk_client.models import AGENT_IDS, Attachment, Comment, Ticket, TicketStatus
 from src.services.ticket_attachments import store_ticket_comment_attachments
 from src.services.ticket_classification import TicketClassificationService
 from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
@@ -159,7 +160,7 @@ def _parse_brand(value: str | None) -> Brand | None:
     if not value:
         return None
     try:
-        return Brand(int(value))
+        return config.get_app_settings().brand.brand_for_id(int(value))
     except (TypeError, ValueError):
         return None
 
@@ -255,10 +256,11 @@ def _tickets_url(  # noqa: PLR0913
 async def _touch_filter_checkpoints(session) -> None:
     from src import datetime_utils
 
+    settings = config.get_app_settings()
     now = datetime_utils.utcnow()
     checkpoints_repo = CheckpointsRepository(session)
-    for brand in Brand:
-        await checkpoints_repo.set_checkpoint(get_checkpoint_name(brand), now)
+    for brand in settings.brand.supported:
+        await checkpoints_repo.set_checkpoint(get_checkpoint_name(settings.brand.id_for(brand)), now)
     tickets_filter_cache.clear()
 
 
@@ -550,7 +552,7 @@ def _build_ticket_timeline(
 
 
 @router.get("")
-async def get_tickets(  # noqa: PLR0913, PLR0917
+async def get_tickets(  # noqa: PLR0913, PLR0914, PLR0917
     request: Request,
     user: Annotated[AdminUserEntity, Depends(require_role(UserRole.USER))],
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
@@ -564,10 +566,12 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
     offset: int = 0,
 ) -> Response:
     selected_limit = parse_page_limit(limit)
+    parsed_brand = _parse_brand(brand)
+    settings = config.get_app_settings()
     filters = TicketFilters(
         ticket_id_prefix=_parse_ticket_id_prefix(ticket_id),
         status=_parse_status(status),
-        brand=_parse_brand(brand),
+        brand_id=settings.brand.id_for(parsed_brand) if parsed_brand else None,
         observing=_parse_observing(observing),
         classification_decision=_parse_classification_decision(classification_decision),
         classification_source=_parse_classification_source(classification_source),
@@ -823,16 +827,17 @@ async def run_ticket_classification(
                     status_code=status.HTTP_303_SEE_OTHER,
                 )
 
-            try:
-                brand = zendesk_ticket.brand or Brand(local_ticket.brand_id)
-            except ValueError:
+            settings = config.get_app_settings()
+            brand_id = zendesk_ticket.brand_id or local_ticket.brand_id
+            brand = settings.brand.brand_for_id(brand_id) if brand_id else None
+            if brand is None:
                 return RedirectResponse(
                     url=f"/admin/tickets/{ticket_id}?error=zendesk_ticket",
                     status_code=status.HTTP_303_SEE_OTHER,
                 )
 
             zendesk_ticket.id = zendesk_ticket.id or ticket_id
-            zendesk_ticket.brand = brand
+            zendesk_ticket.brand_id = brand_id
 
             service = TicketClassificationService(request.app.state.llm_context)
             result = await service.classify_and_store(

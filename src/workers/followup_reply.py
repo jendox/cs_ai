@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
+from src.brands import Brand
 from src.db import session_local
 from src.db.models import LLMPromptKey
 from src.db.repositories import (
@@ -21,7 +22,7 @@ from src.db.repositories import (
 from src.jobs.models import JobType, UserReplyMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment
+from src.libs.zendesk_client.models import AGENT_IDS, Comment
 from src.services import Service
 from src.services.ticket_attachments import store_ticket_comment_attachments
 from src.workers.reply_posting import ReplyPostingContext, ReplyPostingService
@@ -43,21 +44,23 @@ class FollowUpReplyWorker(Service):
         amqp_url: str,
         llm_context: LLMContext,
         brand: Brand,
+        brand_id: int,
     ) -> None:
         super().__init__(name="followup_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._llm_context = llm_context
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
+        self._brand_id = brand_id
         self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
-        job_queue = await create_job_queue(self._amqp_url, self.brand)
+        job_queue = await create_job_queue(self._amqp_url, self._brand_id)
 
         await job_queue.consume(
             JobType.FOLLOWUP_REPLY,
             handler=self._handler,
-            brand=self.brand,
+            brand_id=self._brand_id,
             prefetch=2,
         )
 
@@ -108,7 +111,7 @@ class FollowUpReplyWorker(Service):
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket_id,
-                            brand_id=self.brand.value,
+                            brand_id=self._brand_id,
                             job_type=JobType.FOLLOWUP_REPLY.value,
                             channel=channel,
                             prompt_key=LLMPromptKey.FOLLOWUP_REPLY.value,
@@ -155,7 +158,7 @@ class FollowUpReplyWorker(Service):
                 self.logger.warning("conversation.empty")
                 return ""
 
-            system_prompt = await self._llm_context.prompt_storage.followup_reply_prompt(self.brand)
+            system_prompt = await self._llm_context.prompt_storage.followup_reply_prompt(self.brand, self._brand_id)
             reply = await self._reply_generator.generate(
                 messages=messages,
                 system_prompt=system_prompt,
