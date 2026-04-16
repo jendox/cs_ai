@@ -33,6 +33,7 @@ from .ticket_classification_audits import (
     TicketClassificationAuditCreate,
     TicketClassificationAuditsRepository,
 )
+from .ticket_comment_attachments import TicketCommentAttachmentCreate, TicketCommentAttachmentsRepository
 from .tickets import TicketFilters, TicketListItem, TicketListResult, TicketNotFound, TicketsRepository
 from .zendesk_settings import ZendeskRuntimeSettingsRepository
 
@@ -66,6 +67,8 @@ __all__ = [
     "CLASSIFICATION_SOURCE_RULE",
     "TicketClassificationAuditCreate",
     "TicketClassificationAuditsRepository",
+    "TicketCommentAttachmentCreate",
+    "TicketCommentAttachmentsRepository",
     "ReplyAttemptFilters",
     "ReplyAttemptListResult",
     "ReplyAttemptSummary",

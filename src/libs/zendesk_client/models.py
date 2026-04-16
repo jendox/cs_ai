@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import Annotated, Any, Self
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
@@ -39,7 +40,7 @@ def _require_int_env(name: str, default: str | None = None) -> int:
     except ValueError as exc:
         raise RuntimeError(f"{name} must be int, got: {raw!r}") from exc
 
-
+load_dotenv()
 SUPERSELF_ID = _require_int_env("BRAND__SUPERSELF_ID", "23064017794844")
 SMARTPARTS_ID = _require_int_env("BRAND__SMARTPARTS_ID", "23063999037340")
 CLEOCORA_ID = _require_int_env("BRAND__CLEOCORA_ID", "23063999037000")

@@ -14,8 +14,8 @@ from aio_pika.abc import (
 from src.jobs.models import JobType
 from src.libs.zendesk_client.models import Brand
 
-# RETRY_DELAYS = [60, 300, 900]  # 1m, 5m, 15m (seconds) — production values
-RETRY_DELAYS = [10, 15, 20]  # short values for testing
+RETRY_DELAYS = [60, 300, 900]  # 1m, 5m, 15m (seconds) — production values
+# RETRY_DELAYS = [10, 15, 20]  # short values for testing
 CONNECTION_TIMEOUT = 30
 EXCHANGE_TIMEOUT = 10
 MAX_PUBLISH_ATTEMPTS = 3

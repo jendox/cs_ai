@@ -27,3 +27,17 @@ dependencies = [
     "contextvars>=2.4",
     "anyio>=4.13.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: requires Docker services from deploy/docker-compose.test.yml and CS_INTEGRATION=1",
+]

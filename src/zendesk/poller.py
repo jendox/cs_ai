@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import anyio
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import datetime_utils
 from src.db import session_local
@@ -19,9 +20,10 @@ from src.db.repositories import (
 from src.jobs.models import AgentDirectiveMessage, InitialReplyMessage, JobType, TicketClosedMessage, UserReplyMessage
 from src.jobs.rabbitmq_queue import RabbitJobQueue, create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
-from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
+from src.libs.zendesk_client.models import Brand, Comment, Ticket, TicketStatus
 from src.logs.filters import log_ctx
 from src.services import Service
+from src.services.ticket_attachments import store_ticket_comment_attachments
 
 from .models import Event, EventAuthorRole, EventKind, EventSourceType, comment_to_event
 
@@ -143,18 +145,22 @@ class Poller(Service):
             )
         raise NoStatusChange(ticket_id=ticket.id, status=ticket.status)
 
-    async def _iter_new_comments(self, ticket_id: int, updated_after: datetime) -> AsyncGenerator[Event, None]:
+    async def _iter_new_comments(
+        self,
+        ticket_id: int,
+        updated_after: datetime,
+    ) -> AsyncGenerator[tuple[Event, Comment], None]:
         comments = await self._zendesk_client.get_ticket_comments(ticket_id)
         for comment in comments:
             if not comment.created_at or comment.created_at <= updated_after:
                 continue
-            yield comment_to_event(ticket_id, comment)
+            yield comment_to_event(ticket_id, comment), comment
 
     async def _iter_events(
         self,
         tickets_repo: TicketsRepository,
         updated_after: datetime,
-    ) -> AsyncGenerator[tuple[Event, Ticket], None]:
+    ) -> AsyncGenerator[tuple[Event, Ticket, Comment | None], None]:
         async for updated_ticket in self._zendesk_client.iter_updated_tickets(
             updated_after=updated_after,
             brand=self.brand,
@@ -175,10 +181,10 @@ class Poller(Service):
             except NoStatusChange:
                 self.logger.debug("ticket.status_unchanged", extra={"ticket_id": ticket_id})
             else:
-                yield event, updated_ticket
+                yield event, updated_ticket, None
             # Теперь получаем добавившиеся комментарии, если они есть
-            async for event in self._iter_new_comments(ticket_id, updated_after):
-                yield event, updated_ticket
+            async for event, comment in self._iter_new_comments(ticket_id, updated_after):
+                yield event, updated_ticket, comment
 
     async def _update_db_ticket(self, ticket: Ticket):
         update_ticket = Ticket(
@@ -226,6 +232,26 @@ class Poller(Service):
                 brand=self.brand,
             )
 
+    async def _store_comment_attachments(
+        self,
+        session: AsyncSession,
+        event: Event,
+        comment: Comment | None,
+    ) -> None:
+        if comment is None:
+            return
+
+        attachments_count = await store_ticket_comment_attachments(
+            session,
+            ticket_id=event.ticket_id,
+            comments=[comment],
+        )
+        if attachments_count:
+            self.logger.info(
+                "comment_attachments.stored",
+                extra={"count": attachments_count},
+            )
+
     @staticmethod
     def _should_skip_initial_followup(
         event: Event,
@@ -239,13 +265,14 @@ class Poller(Service):
 
     async def _process_events(
         self,
+        session: AsyncSession,
         tickets_repo: TicketsRepository,
         events_repo: EventsRepository,
         updated_after: datetime,
         initial_reply_ticket_ids: set[int],
     ) -> datetime:
         latest_seen = updated_after
-        async for event, ticket in self._iter_events(tickets_repo, updated_after):
+        async for event, ticket, comment in self._iter_events(tickets_repo, updated_after):
             inserted = await events_repo.insert_event(event)
             if inserted:
                 self.logger.debug(
@@ -261,6 +288,7 @@ class Poller(Service):
                     await self._create_status_job(event, ticket)
                 # Добавили комментарий
                 elif event.source_type == EventSourceType.COMMENT:
+                    await self._store_comment_attachments(session, event, comment)
                     if self._should_skip_initial_followup(event, initial_reply_ticket_ids):
                         self.logger.info("followup.skipped_initial_comment")
                     else:
@@ -273,6 +301,7 @@ class Poller(Service):
 
     async def _poll_once(
         self,
+        session: AsyncSession,
         tickets_repo: TicketsRepository,
         events_repo: EventsRepository,
         checkpoints_repo: CheckpointsRepository,
@@ -289,6 +318,7 @@ class Poller(Service):
         await checkpoints_repo.set_checkpoint(cp_tickets, last_seen)
         # Events - создаем jobs для новых событий
         latest_seen = await self._process_events(
+            session,
             tickets_repo,
             events_repo,
             events_from,
@@ -363,6 +393,7 @@ class Poller(Service):
             checkpoints_repo = CheckpointsRepository(session)
             async with session.begin():
                 await self._poll_once(
+                    session,
                     tickets_repo,
                     events_repo,
                     checkpoints_repo,

@@ -198,6 +198,42 @@ class TicketClassificationAudit(Base):
     )
 
 
+class TicketCommentAttachment(Base):
+    __tablename__ = "ticket_comment_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "tickets.ticket_id",
+            onupdate="CASCADE",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    comment_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    attachment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    content_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mapped_content_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comment_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id",
+            "comment_id",
+            "attachment_id",
+            name="uq_ticket_comment_attachments_ticket_comment_attachment",
+        ),
+        Index("idx_ticket_comment_attachments_ticket_comment", "ticket_id", "comment_id"),
+        Index("idx_ticket_comment_attachments_ticket_created", "ticket_id", "comment_created_at"),
+    )
+
+
 class LLMPlaygroundTicketStatus(StrEnum):
     OPEN = "open"
     CLOSED = "closed"

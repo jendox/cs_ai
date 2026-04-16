@@ -1,0 +1,38 @@
+# Ephemeral Postgres + RabbitMQ for integration tests.
+# Usage:
+#   docker compose -f deploy/docker-compose.test.yml up -d
+#   CS_INTEGRATION=1 uv run pytest tests/integration -q
+#   docker compose -f deploy/docker-compose.test.yml down -v
+#
+# Note: integration tests force POSTGRES__* to 127.0.0.1:55432 / cs_test so a local
+# `.env` does not accidentally point Alembic at another database.
+
+name: cs-test
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cs_test
+      POSTGRES_PASSWORD: cs_test
+      POSTGRES_DB: cs_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cs_test -d cs_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: cs_test
+      RABBITMQ_DEFAULT_PASS: cs_test
+    ports:
+      - "55672:5672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

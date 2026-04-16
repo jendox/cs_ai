@@ -16,6 +16,7 @@ from src.db.models import (
     AdminUser as AdminUserEntity,
     Event as EventEntity,
     ReplyAttemptStatus,
+    TicketCommentAttachment as TicketCommentAttachmentEntity,
     TicketReplyAttempt as TicketReplyAttemptEntity,
     UserRole,
 )
@@ -30,6 +31,7 @@ from src.db.repositories import (
     EventsRepository,
     TicketClassificationAuditCreate,
     TicketClassificationAuditsRepository,
+    TicketCommentAttachmentsRepository,
     TicketFilters,
     TicketNotFound,
     TicketReplyAttemptsRepository,
@@ -38,7 +40,9 @@ from src.db.repositories import (
 )
 from src.jobs.models import JobType
 from src.libs.zendesk_client.client import ZendeskClientError, create_zendesk_client
-from src.libs.zendesk_client.models import AGENT_IDS, Attachment, Brand, Comment, TicketStatus
+from src.libs.zendesk_client.models import AGENT_IDS, Attachment, Brand, Comment, Ticket, TicketStatus
+from src.services.ticket_attachments import store_ticket_comment_attachments
+from src.services.ticket_classification import TicketClassificationService
 from src.tickets_filter.cache import get_checkpoint_name, tickets_filter_cache
 from src.tickets_filter.config import TicketsFilterRuleKind
 from src.tickets_filter.dto import TicketsFilterRuleDTO
@@ -78,11 +82,13 @@ MANUAL_CLASSIFICATION_DECISION_OPTIONS: tuple[tuple[str, str], ...] = (
 TICKET_SAVED_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments refreshed.",
     "classification": "Ticket classification updated.",
+    "auto_classification": "Ticket reclassified.",
     "filter_rule": "Filter rule created.",
 }
 TICKET_ERROR_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments could not be refreshed.",
     "ticket_not_found": "Ticket is not stored locally yet, so comments cannot be saved.",
+    "zendesk_ticket": "Zendesk ticket could not be loaded.",
     "classification_decision": "Invalid classification decision.",
     "filter_rule_kind": "Invalid filter rule kind.",
     "filter_rule_value": "Rule value is required and must be 128 characters or fewer.",
@@ -305,6 +311,7 @@ async def _store_zendesk_comments(ticket_id: int, comments: list[Comment]) -> in
                     continue
                 if await events_repo.insert_event(comment_to_event(ticket_id, comment)):
                     inserted_count += 1
+            await store_ticket_comment_attachments(session, ticket_id=ticket_id, comments=comments)
     return inserted_count
 
 
@@ -313,6 +320,15 @@ async def _refresh_zendesk_comments(ticket_id: int) -> tuple[int, str | None]:
     if error is not None:
         return 0, error
     return await _store_zendesk_comments(ticket_id, comments), None
+
+
+async def _load_zendesk_ticket(ticket_id: int) -> tuple[Ticket | None, str | None]:
+    settings = config.get_app_settings()
+    try:
+        async with create_zendesk_client(settings.zendesk) as client:
+            return await client.get_ticket(ticket_id), None
+    except (ZendeskClientError, httpx.HTTPError) as error:
+        return None, str(error)
 
 
 def _ticket_flash(
@@ -404,6 +420,16 @@ def _timeline_attachment(attachment: Attachment) -> TimelineAttachment:
     )
 
 
+def _stored_timeline_attachment(attachment: TicketCommentAttachmentEntity) -> TimelineAttachment:
+    return TimelineAttachment(
+        file_name=attachment.file_name,
+        content_type=attachment.content_type,
+        size_label=_format_attachment_size(attachment.size),
+        content_url=attachment.mapped_content_url or attachment.content_url,
+        thumbnail_url=attachment.thumbnail_url,
+    )
+
+
 def _comment_attachments(comments: list[Comment]) -> dict[str, tuple[TimelineAttachment, ...]]:
     result: dict[str, tuple[TimelineAttachment, ...]] = {}
     for comment in comments:
@@ -411,6 +437,25 @@ def _comment_attachments(comments: list[Comment]) -> dict[str, tuple[TimelineAtt
             continue
         result[str(comment.id)] = tuple(_timeline_attachment(item) for item in comment.attachments)
     return result
+
+
+def _stored_comment_attachments(
+    attachments: list[TicketCommentAttachmentEntity],
+) -> dict[str, tuple[TimelineAttachment, ...]]:
+    grouped: dict[str, list[TimelineAttachment]] = {}
+    for attachment in attachments:
+        grouped.setdefault(attachment.comment_id, []).append(_stored_timeline_attachment(attachment))
+    return {comment_id: tuple(items) for comment_id, items in grouped.items()}
+
+
+def _merge_comment_attachments(
+    stored: dict[str, tuple[TimelineAttachment, ...]],
+    live: dict[str, tuple[TimelineAttachment, ...]],
+) -> dict[str, tuple[TimelineAttachment, ...]]:
+    merged = dict(stored)
+    for comment_id, attachments in live.items():
+        merged.setdefault(comment_id, attachments)
+    return merged
 
 
 def _build_event_timeline_item(
@@ -611,6 +656,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
         events_repo = EventsRepository(session)
         attempts_repo = TicketReplyAttemptsRepository(session)
         classification_audits_repo = TicketClassificationAuditsRepository(session)
+        attachments_repo = TicketCommentAttachmentsRepository(session)
 
         try:
             ticket = await tickets_repo.get_ticket_by_id(ticket_id)
@@ -622,6 +668,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
         attempts = await attempts_repo.list_by_ticket(ticket_id)
         classification_audit = await classification_audits_repo.get_latest_by_ticket(ticket_id)
         classification_audits = await classification_audits_repo.list_by_ticket(ticket_id)
+        stored_attachments = await attachments_repo.list_by_ticket(ticket_id)
 
     fallback_comments: list[Comment] = []
     comments_error = None
@@ -638,7 +685,10 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
         events=events,
         fallback_comments=fallback_comments,
         attempts=attempts,
-        attachments_by_comment_id=_comment_attachments(live_comments),
+        attachments_by_comment_id=_merge_comment_attachments(
+            _stored_comment_attachments(stored_attachments),
+            _comment_attachments(live_comments),
+        ),
     )
     last_successful_attempt = _last_successful_attempt(attempts)
 
@@ -742,6 +792,64 @@ async def update_ticket_classification(
 
     return RedirectResponse(
         url=f"/admin/tickets/{ticket_id}?saved=classification",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/{ticket_id}/classification/run")
+async def run_ticket_classification(
+    ticket_id: int,
+    request: Request,
+    user: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
+    _: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    del user
+
+    zendesk_ticket, load_error = await _load_zendesk_ticket(ticket_id)
+    if load_error is not None or zendesk_ticket is None:
+        return RedirectResponse(
+            url=f"/admin/tickets/{ticket_id}?error=zendesk_ticket",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    async with session_local() as session:
+        async with session.begin():
+            tickets_repo = TicketsRepository(session)
+            try:
+                local_ticket = await tickets_repo.get_ticket_by_id(ticket_id)
+            except TicketNotFound:
+                return RedirectResponse(
+                    url=f"/admin/tickets/{ticket_id}?error=ticket_not_found",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+
+            try:
+                brand = zendesk_ticket.brand or Brand(local_ticket.brand_id)
+            except ValueError:
+                return RedirectResponse(
+                    url=f"/admin/tickets/{ticket_id}?error=zendesk_ticket",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+
+            zendesk_ticket.id = zendesk_ticket.id or ticket_id
+            zendesk_ticket.brand = brand
+
+            service = TicketClassificationService(request.app.state.llm_context)
+            result = await service.classify_and_store(
+                session,
+                ticket=zendesk_ticket,
+                brand=brand,
+            )
+
+    if result.decision == CLASSIFICATION_DECISION_CUSTOMER:
+        comments, comments_error = await _load_zendesk_comments(ticket_id)
+        if comments_error is None:
+            async with session_local() as session:
+                async with session.begin():
+                    await store_ticket_comment_attachments(session, ticket_id=ticket_id, comments=comments)
+
+    return RedirectResponse(
+        url=f"/admin/tickets/{ticket_id}?saved=auto_classification",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

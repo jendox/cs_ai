@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Any, cast
 
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
@@ -22,6 +23,7 @@ from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import AGENT_IDS, Brand, Comment
 from src.services import Service
+from src.services.ticket_attachments import store_ticket_comment_attachments
 from src.workers.reply_posting import ReplyPostingContext, ReplyPostingService
 from src.zendesk.models import comment_to_event
 
@@ -102,7 +104,7 @@ class FollowUpReplyWorker(Service):
                         return True
 
                     channel = await zendesk_repo.get_channel()
-                    reply = await self._generate_followup_reply(ticket_id, events_repo)
+                    reply = await self._generate_followup_reply(session, ticket_id, events_repo)
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket_id,
@@ -141,9 +143,14 @@ class FollowUpReplyWorker(Service):
         self.logger.info("followup.skipped_before_initial_reply", extra={"source_id": source_id})
         return FollowUpDecision.SKIP
 
-    async def _generate_followup_reply(self, ticket_id: int, events_repo: EventsRepository) -> str:
+    async def _generate_followup_reply(
+        self,
+        session: AsyncSession,
+        ticket_id: int,
+        events_repo: EventsRepository,
+    ) -> str:
         try:
-            messages = await self._build_conversation_messages(ticket_id, events_repo)
+            messages = await self._build_conversation_messages(session, ticket_id, events_repo)
             if not messages:
                 self.logger.warning("conversation.empty")
                 return ""
@@ -164,12 +171,18 @@ class FollowUpReplyWorker(Service):
 
     async def _build_conversation_messages(
         self,
+        session: AsyncSession,
         ticket_id: int,
         events_repo: EventsRepository,
     ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         comments = await self._zendesk_client.get_ticket_comments(ticket_id)
-        await self._store_comments(events_repo, ticket_id, comments)
+        await self._store_comments(
+            session=session,
+            events_repo=events_repo,
+            ticket_id=ticket_id,
+            comments=comments,
+        )
 
         for comment in sorted(comments, key=self._comment_created_at):
             if not comment.public:
@@ -184,6 +197,8 @@ class FollowUpReplyWorker(Service):
 
     async def _store_comments(
         self,
+        *,
+        session: AsyncSession,
         events_repo: EventsRepository,
         ticket_id: int,
         comments: list[Comment],
@@ -196,6 +211,9 @@ class FollowUpReplyWorker(Service):
                 inserted_count += 1
         if inserted_count:
             self.logger.info("comments.stored", extra={"count": inserted_count})
+        attachments_count = await store_ticket_comment_attachments(session, ticket_id=ticket_id, comments=comments)
+        if attachments_count:
+            self.logger.info("comment_attachments.stored", extra={"count": attachments_count})
 
     @staticmethod
     def _comment_created_at(comment: Comment) -> datetime:

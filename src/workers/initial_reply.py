@@ -7,18 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
 from src.ai.reply_generator import LLMReplyGenerator
-from src.ai.ticket_classifier import LLMTicketClassifier
 from src.db import session_local
 from src.db.models import LLMPromptKey
 from src.db.repositories import (
-    CLASSIFICATION_DECISION_CUSTOMER,
-    CLASSIFICATION_DECISION_SERVICE,
-    CLASSIFICATION_DECISION_UNKNOWN,
-    CLASSIFICATION_SOURCE_LLM,
-    CLASSIFICATION_SOURCE_RULE,
     OurPostsRepository,
-    TicketClassificationAuditCreate,
-    TicketClassificationAuditsRepository,
     TicketReplyAttemptsRepository,
     TicketsRepository,
     ZendeskRuntimeSettingsRepository,
@@ -28,7 +20,7 @@ from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand, Ticket
 from src.services import Service
-from src.tickets_filter.cache import tickets_filter_cache
+from src.services.ticket_classification import TicketClassificationService
 
 from .log_context import log_context
 from .reply_posting import ReplyPostingContext, ReplyPostingService
@@ -45,7 +37,7 @@ class InitialReplyWorker(Service):
         super().__init__(name="initial_reply", brand=brand)
         self._zendesk_client = zendesk_client
         self._llm_context = llm_context
-        self._ticket_classifier = LLMTicketClassifier(llm_context)
+        self._ticket_classification_service = TicketClassificationService(llm_context)
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
         self.brand = cast(Brand, self.brand)
@@ -70,7 +62,6 @@ class InitialReplyWorker(Service):
         async with (log_context(ticket.id, self.brand, iteration_id, JobType.INITIAL_REPLY)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
-                classification_audits_repo = TicketClassificationAuditsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
                 reply_attempts_repo = TicketReplyAttemptsRepository(session)
                 zendesk_repo = ZendeskRuntimeSettingsRepository(session)
@@ -83,7 +74,7 @@ class InitialReplyWorker(Service):
                 )
 
                 async with session.begin():
-                    if await self._filter_as_service(session, classification_audits_repo, ticket):
+                    if await self._filter_as_service(session, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
 
                     channel = await zendesk_repo.get_channel()
@@ -110,107 +101,35 @@ class InitialReplyWorker(Service):
     async def _filter_as_service(
         self,
         session: AsyncSession,
-        classification_audits_repo: TicketClassificationAuditsRepository,
         ticket: Ticket,
     ) -> bool:
-        tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
-        rule_decision = tickets_filter.classify_ticket(ticket)
-        if rule_decision.is_service:
-            await classification_audits_repo.create(
-                TicketClassificationAuditCreate(
-                    ticket_id=ticket.id,
-                    brand_id=self.brand.value,
-                    decision=CLASSIFICATION_DECISION_SERVICE,
-                    source=CLASSIFICATION_SOURCE_RULE,
-                    rule=rule_decision.rule,
-                    detail=rule_decision.detail,
-                ),
-            )
-            self.logger.info(
-                "tickets.filtered_as_service",
-                extra={
-                    "decision": "tickets_filter",
-                    "classification_rule": rule_decision.rule,
-                    "classification_detail": rule_decision.detail,
-                },
-            )
-            return True
-        if rule_decision.rule is not None:
-            await classification_audits_repo.create(
-                TicketClassificationAuditCreate(
-                    ticket_id=ticket.id,
-                    brand_id=self.brand.value,
-                    decision=CLASSIFICATION_DECISION_CUSTOMER,
-                    source=CLASSIFICATION_SOURCE_RULE,
-                    rule=rule_decision.rule,
-                    detail=rule_decision.detail,
-                ),
-            )
-            self.logger.info(
-                "tickets.filtered_as_customer",
-                extra={
-                    "decision": "tickets_filter",
-                    "classification_rule": rule_decision.rule,
-                    "classification_detail": rule_decision.detail,
-                },
-            )
-            return False
-        # Фильтрация AI
-        decision = await self._ticket_classifier.decide(ticket)
-        if decision.error is not None:
-            await classification_audits_repo.create(
-                TicketClassificationAuditCreate(
-                    ticket_id=ticket.id,
-                    brand_id=self.brand.value,
-                    decision=CLASSIFICATION_DECISION_UNKNOWN,
-                    source=CLASSIFICATION_SOURCE_LLM,
-                    detail=decision.error,
-                    llm_category=decision.category.value,
-                    llm_confidence=decision.confidence,
-                    threshold=decision.threshold,
-                ),
-            )
-            self.logger.warning(
-                "tickets.classification_failed",
-                extra={
-                    "decision": "llm_tickets_classifier",
-                    "error": decision.error,
-                    "llm_category": decision.category.value,
-                    "llm_confidence": decision.confidence,
-                    "threshold": decision.threshold,
-                },
-            )
-            return False
-
-        await classification_audits_repo.create(
-            TicketClassificationAuditCreate(
-                ticket_id=ticket.id,
-                brand_id=self.brand.value,
-                decision=CLASSIFICATION_DECISION_SERVICE if decision.is_service else CLASSIFICATION_DECISION_CUSTOMER,
-                source=CLASSIFICATION_SOURCE_LLM,
-                llm_category=decision.category.value,
-                llm_confidence=decision.confidence,
-                threshold=decision.threshold,
-            ),
+        result = await self._ticket_classification_service.classify_and_store(
+            session,
+            ticket=ticket,
+            brand=self.brand,
         )
-        if decision.is_service:
+        if result.is_service:
             self.logger.info(
                 "tickets.filtered_as_service",
                 extra={
-                    "decision": "llm_tickets_classifier",
-                    "llm_category": decision.category.value,
-                    "llm_confidence": decision.confidence,
-                    "threshold": decision.threshold,
+                    "decision": result.source,
+                    "classification_rule": result.rule,
+                    "classification_detail": result.detail,
+                    "llm_category": result.llm_category,
+                    "llm_confidence": result.llm_confidence,
+                    "threshold": result.threshold,
                 },
             )
             return True
         self.logger.info(
             "tickets.filtered_as_customer",
             extra={
-                "decision": "llm_tickets_classifier",
-                "llm_category": decision.category.value,
-                "llm_confidence": decision.confidence,
-                "threshold": decision.threshold,
+                "decision": result.source,
+                "classification_rule": result.rule,
+                "classification_detail": result.detail,
+                "llm_category": result.llm_category,
+                "llm_confidence": result.llm_confidence,
+                "threshold": result.threshold,
             },
         )
         return False
