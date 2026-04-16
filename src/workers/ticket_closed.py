@@ -1,6 +1,7 @@
 import uuid
-from contextlib import asynccontextmanager
+from typing import cast
 
+from log_context import log_context
 from pydantic import ValidationError
 
 from src.db import session_local
@@ -9,25 +10,7 @@ from src.jobs.models import JobType, TicketClosedMessage
 from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand
-from src.logs.filters import log_ctx
 from src.services import Service
-
-
-@asynccontextmanager
-async def log_context(ticket_id: int, brand: Brand):
-    token = log_ctx.set({
-        "brand": brand.value,
-        "job_type": JobType.TICKET_CLOSED.value,
-        "ticket_id": ticket_id,
-        "iteration_id": uuid.uuid4().hex[:8],
-    })
-    try:
-        yield
-    finally:
-        try:
-            log_ctx.reset(token)
-        except Exception:
-            pass
 
 
 class TicketClosedWorker(Service):
@@ -40,6 +23,7 @@ class TicketClosedWorker(Service):
         super().__init__(name="ticket_closed", brand=brand)
         self._zendesk_client = zendesk_client
         self._amqp_url = amqp_url
+        self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
         job_queue = await create_job_queue(self._amqp_url, self.brand)
@@ -57,21 +41,19 @@ class TicketClosedWorker(Service):
             return True
 
         ticket_id = message.ticket_id
-        async with log_context(ticket_id=ticket_id, brand=self.brand):
+        iteration_id = uuid.uuid4().hex[:8]
+        async with log_context(ticket_id, self.brand, iteration_id, JobType.TICKET_CLOSED):
             async with session_local() as session:
                 repo = TicketsRepository(session)
                 async with session.begin():
                     try:
                         await repo.set_observing(ticket_id, observing=False)
-                        self.logger.info(
-                            "ticket.marked_unobserved",
-                            extra={"ticket_id": ticket_id},
-                        )
+                        self.logger.info("ticket.marked_unobserved")
                         return True
                     except Exception as exc:
                         self.logger.warning(
                             "db.update_observing_failed",
-                            extra={"ticket_id": ticket_id, "error": str(exc)},
+                            extra={"error": str(exc)},
                         )
                         return False
 

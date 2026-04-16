@@ -1,5 +1,6 @@
 import uuid
 from textwrap import dedent
+from typing import cast
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,7 @@ class InitialReplyWorker(Service):
         self._ticket_classifier = LLMTicketClassifier(llm_context)
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
+        self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
         job_queue = await create_job_queue(self._amqp_url, self.brand)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -47,6 +47,7 @@ class FollowUpReplyWorker(Service):
         self._llm_context = llm_context
         self._reply_generator = LLMReplyGenerator(llm_context)
         self._amqp_url = amqp_url
+        self.brand = cast(Brand, self.brand)
 
     async def run(self) -> None:
         job_queue = await create_job_queue(self._amqp_url, self.brand)

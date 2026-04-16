@@ -12,7 +12,6 @@ from src.ai.llm_clients.pool import LLMClientPool
 from src.db.sa import Database
 from src.libs.zendesk_client.client import create_zendesk_client
 from src.libs.zendesk_client.models import Brand
-from src.telegram.admin import TelegramAdmin
 from src.workers import FollowUpReplyWorker, InitialReplyWorker, TicketClosedWorker
 from src.workflows import catalog_sync
 from src.zendesk.poller import Poller
@@ -53,7 +52,7 @@ async def app():
                 if settings.init_ref_update:
                     await catalog_sync.sync_catalog_for_brand_all_eu_markets(brand, amazon_mcp_client)
 
-            tasks.append(TelegramAdmin(settings.telegram, llm_context))
+            # tasks.append(TelegramAdmin(settings.telegram, llm_context))
 
             async with anyio.create_task_group() as tg:
                 for task in tasks:

@@ -19,7 +19,15 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <label class="field">
-        <span>Provider</span>
+        <span class="label-with-help">
+          Provider
+          <span class="info-tooltip" tabindex="0" aria-label="Provider help">
+            <span aria-hidden="true">i</span>
+            <span class="tooltip-content" role="tooltip">
+              LLM vendor used for generation. Empty means the app default provider from configuration is used. Currently the admin UI supports Google models.
+            </span>
+          </span>
+        </span>
         <select name="provider" data-model-provider>
           <option value="">Default</option>
           {% for provider, label in supported_providers.items() %}
@@ -31,7 +39,15 @@
       </label>
 
       <label class="field">
-        <span>Model</span>
+        <span class="label-with-help">
+          Model
+          <span class="info-tooltip" tabindex="0" aria-label="Model help">
+            <span aria-hidden="true">i</span>
+            <span class="tooltip-content" role="tooltip">
+              Concrete model used for customer-facing replies. Empty means provider default. Use faster/cheaper models for routine tickets and stronger models for harder prompts.
+            </span>
+          </span>
+        </span>
         <select name="model" data-model-select data-current-model="{{ response.model or '' }}">
           <option value="">Provider default</option>
           {% for model in supported_models_by_provider.get(selected_provider, []) %}
@@ -44,18 +60,42 @@
 
       <div class="form-row">
         <label class="field">
-          <span>Temperature</span>
+          <span class="label-with-help">
+            Temperature
+            <span class="info-tooltip" tabindex="0" aria-label="Temperature help">
+              <span aria-hidden="true">i</span>
+              <span class="tooltip-content" role="tooltip">
+                Controls randomness. Range: 0.0-1.0. Lower values make replies more stable and predictable; higher values make wording more varied but can increase mistakes. For support replies, 0.2-0.5 is usually safer.
+              </span>
+            </span>
+          </span>
           <input name="temperature" type="number" min="0" max="1" step="0.01" value="{{ response.temperature }}">
         </label>
 
         <label class="field">
-          <span>Top P</span>
+          <span class="label-with-help">
+            Top P
+            <span class="info-tooltip" tabindex="0" aria-label="Top P help">
+              <span aria-hidden="true">i</span>
+              <span class="tooltip-content" role="tooltip">
+                Nucleus sampling limit. Range: 0.0-1.0. Lower values restrict token choices and make output more conservative; 1.0 allows the full distribution. Usually keep this near 1.0 and tune Temperature first.
+              </span>
+            </span>
+          </span>
           <input name="top_p" type="number" min="0" max="1" step="0.01" value="{{ response.top_p }}">
         </label>
       </div>
 
       <label class="field">
-        <span>Max Tokens</span>
+        <span class="label-with-help">
+          Max Tokens
+          <span class="info-tooltip" tabindex="0" aria-label="Max Tokens help">
+            <span aria-hidden="true">i</span>
+            <span class="tooltip-content" role="tooltip">
+              Maximum response length in output tokens. Minimum: 1. Higher values allow longer answers but cost more and may make replies too verbose. For support replies, keep enough room for a complete answer without encouraging long text.
+            </span>
+          </span>
+        </span>
         <input name="max_tokens" type="number" min="1" step="1" value="{{ response.max_tokens }}">
       </label>
 
@@ -97,24 +137,56 @@
       </label>
 
       <label class="field">
-        <span>Threshold</span>
+        <span class="label-with-help">
+          Threshold
+          <span class="info-tooltip" tabindex="0" aria-label="Threshold help">
+            <span aria-hidden="true">i</span>
+            <span class="tooltip-content" role="tooltip">
+              Minimum confidence required for LLM classification to treat a ticket as service/spam. Range: 0.0-1.0. Higher values reduce false positives but let more noisy tickets through; lower values filter more aggressively.
+            </span>
+          </span>
+        </span>
         <input name="threshold" type="number" min="0" max="1" step="0.01" value="{{ classification.threshold }}">
       </label>
 
       <div class="form-row">
         <label class="field">
-          <span>Temperature</span>
+          <span class="label-with-help">
+            Temperature
+            <span class="info-tooltip" tabindex="0" aria-label="Classification temperature help">
+              <span aria-hidden="true">i</span>
+              <span class="tooltip-content" role="tooltip">
+                Randomness for classification decisions. Range: 0.0-1.0. Classification should be deterministic, so keep this near 0.0 unless you are deliberately testing model behavior.
+              </span>
+            </span>
+          </span>
           <input name="temperature" type="number" min="0" max="1" step="0.01" value="{{ classification.temperature }}">
         </label>
 
         <label class="field">
-          <span>Top P</span>
+          <span class="label-with-help">
+            Top P
+            <span class="info-tooltip" tabindex="0" aria-label="Classification Top P help">
+              <span aria-hidden="true">i</span>
+              <span class="tooltip-content" role="tooltip">
+                Nucleus sampling for classification. Range: 0.0-1.0. For stable yes/no style decisions, keep this high and rely on low Temperature.
+              </span>
+            </span>
+          </span>
           <input name="top_p" type="number" min="0" max="1" step="0.01" value="{{ classification.top_p }}">
         </label>
       </div>
 
       <label class="field">
-        <span>Max Tokens</span>
+        <span class="label-with-help">
+          Max Tokens
+          <span class="info-tooltip" tabindex="0" aria-label="Classification Max Tokens help">
+            <span aria-hidden="true">i</span>
+            <span class="tooltip-content" role="tooltip">
+              Maximum output length for classification. Minimum: 1. Classification responses should be short and structured, so this can usually stay much lower than reply generation.
+            </span>
+          </span>
+        </span>
         <input name="max_tokens" type="number" min="1" step="1" value="{{ classification.max_tokens }}">
       </label>
 
