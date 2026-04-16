@@ -10,9 +10,15 @@ from src.db.models import (
     Event as EventEntity,
     ReplyAttemptStatus,
     Ticket as TicketEntity,
+    TicketClassificationAudit as TicketClassificationAuditEntity,
     TicketReplyAttempt as TicketReplyAttemptEntity,
 )
 from src.db.repositories.base import BaseRepository
+from src.db.repositories.ticket_classification_audits import (
+    CLASSIFICATION_DECISION_CUSTOMER,
+    CLASSIFICATION_DECISION_SERVICE,
+    CLASSIFICATION_DECISION_UNKNOWN,
+)
 from src.libs.zendesk_client.models import Brand, Ticket, TicketStatus
 
 __all__ = (
@@ -34,6 +40,8 @@ class TicketFilters:
     status: TicketStatus | None = None
     brand: Brand | None = None
     observing: bool | None = None
+    classification_decision: str | None = None
+    classification_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,13 @@ class TicketListItem:
     posted_reply_count: int
     failed_reply_count: int
     last_customer_comment_at: datetime | None
+    classification_decision: str | None
+    classification_source: str | None
+    classification_rule: str | None
+    classification_detail: str | None
+    classification_created_at: datetime | None
+    llm_category: str | None
+    llm_confidence: float | None
 
 
 @dataclass(frozen=True)
@@ -145,6 +160,30 @@ class TicketsRepository(BaseRepository):
 
         return conditions
 
+    @staticmethod
+    def _classification_filter_conditions(
+        filters: TicketFilters | None,
+        *,
+        audit: type[TicketClassificationAuditEntity],
+    ) -> list[ColumnElement[bool]]:
+        if filters is None:
+            return []
+
+        conditions: list[ColumnElement[bool]] = []
+        if filters.classification_decision == "unknown":
+            conditions.append((audit.id.is_(None)) | (audit.decision == CLASSIFICATION_DECISION_UNKNOWN))
+        elif filters.classification_decision in {
+            CLASSIFICATION_DECISION_CUSTOMER,
+            CLASSIFICATION_DECISION_SERVICE,
+            CLASSIFICATION_DECISION_UNKNOWN,
+        }:
+            conditions.append(audit.decision == filters.classification_decision)
+
+        if filters.classification_source in {"rule", "llm"}:
+            conditions.append(audit.source == filters.classification_source)
+
+        return conditions
+
     async def list_tickets(
         self,
         *,
@@ -188,8 +227,28 @@ class TicketsRepository(BaseRepository):
             .group_by(TicketReplyAttemptEntity.ticket_id)
             .subquery()
         )
+        latest_audit_ids = (
+            select(
+                TicketClassificationAuditEntity.ticket_id,
+                func.max(TicketClassificationAuditEntity.id).label("audit_id"),
+            )
+            .group_by(TicketClassificationAuditEntity.ticket_id)
+            .subquery()
+        )
+        audit_conditions = self._classification_filter_conditions(
+            filters,
+            audit=TicketClassificationAuditEntity,
+        )
 
-        total_stmt = select(func.count()).select_from(TicketEntity)
+        total_stmt = (
+            select(func.count())
+            .select_from(TicketEntity)
+            .outerjoin(latest_audit_ids, latest_audit_ids.c.ticket_id == TicketEntity.ticket_id)
+            .outerjoin(
+                TicketClassificationAuditEntity,
+                TicketClassificationAuditEntity.id == latest_audit_ids.c.audit_id,
+            )
+        )
         items_stmt = (
             select(
                 TicketEntity,
@@ -198,9 +257,21 @@ class TicketsRepository(BaseRepository):
                 func.coalesce(reply_counts.c.posted_reply_count, 0),
                 func.coalesce(reply_counts.c.failed_reply_count, 0),
                 event_counts.c.last_customer_comment_at,
+                TicketClassificationAuditEntity.decision,
+                TicketClassificationAuditEntity.source,
+                TicketClassificationAuditEntity.rule,
+                TicketClassificationAuditEntity.detail,
+                TicketClassificationAuditEntity.created_at,
+                TicketClassificationAuditEntity.llm_category,
+                TicketClassificationAuditEntity.llm_confidence,
             )
             .outerjoin(event_counts, event_counts.c.ticket_id == TicketEntity.ticket_id)
             .outerjoin(reply_counts, reply_counts.c.ticket_id == TicketEntity.ticket_id)
+            .outerjoin(latest_audit_ids, latest_audit_ids.c.ticket_id == TicketEntity.ticket_id)
+            .outerjoin(
+                TicketClassificationAuditEntity,
+                TicketClassificationAuditEntity.id == latest_audit_ids.c.audit_id,
+            )
             .order_by(desc(TicketEntity.updated_at))
             .limit(limit)
             .offset(offset)
@@ -208,6 +279,9 @@ class TicketsRepository(BaseRepository):
         if conditions:
             total_stmt = total_stmt.where(*conditions)
             items_stmt = items_stmt.where(*conditions)
+        if audit_conditions:
+            total_stmt = total_stmt.where(*audit_conditions)
+            items_stmt = items_stmt.where(*audit_conditions)
 
         total = await self._session.scalar(total_stmt)
         rows = await self._session.execute(items_stmt)
@@ -219,6 +293,13 @@ class TicketsRepository(BaseRepository):
                 posted_reply_count=posted_reply_count,
                 failed_reply_count=failed_reply_count,
                 last_customer_comment_at=last_customer_comment_at,
+                classification_decision=classification_decision,
+                classification_source=classification_source,
+                classification_rule=classification_rule,
+                classification_detail=classification_detail,
+                classification_created_at=classification_created_at,
+                llm_category=llm_category,
+                llm_confidence=llm_confidence,
             )
             for (
                 ticket,
@@ -227,6 +308,13 @@ class TicketsRepository(BaseRepository):
                 posted_reply_count,
                 failed_reply_count,
                 last_customer_comment_at,
+                classification_decision,
+                classification_source,
+                classification_rule,
+                classification_detail,
+                classification_created_at,
+                llm_category,
+                llm_confidence,
             ) in rows.all()
         ]
 

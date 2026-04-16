@@ -19,7 +19,13 @@ from src.db.models import (
     UserRole,
 )
 from src.db.repositories import (
+    CLASSIFICATION_DECISION_CUSTOMER,
+    CLASSIFICATION_DECISION_SERVICE,
+    CLASSIFICATION_DECISION_UNKNOWN,
+    CLASSIFICATION_SOURCE_LLM,
+    CLASSIFICATION_SOURCE_RULE,
     EventsRepository,
+    TicketClassificationAuditsRepository,
     TicketFilters,
     TicketNotFound,
     TicketReplyAttemptsRepository,
@@ -40,6 +46,17 @@ OBSERVING_OPTIONS: tuple[tuple[str, str], ...] = (
     ("", "Any"),
     ("true", "Observed"),
     ("false", "Not observed"),
+)
+CLASSIFICATION_DECISION_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("", "Any"),
+    (CLASSIFICATION_DECISION_CUSTOMER, "Customer"),
+    (CLASSIFICATION_DECISION_SERVICE, "Service"),
+    (CLASSIFICATION_DECISION_UNKNOWN, "Unknown"),
+)
+CLASSIFICATION_SOURCE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("", "Any"),
+    (CLASSIFICATION_SOURCE_RULE, "Rule"),
+    (CLASSIFICATION_SOURCE_LLM, "LLM"),
 )
 TICKET_SAVED_MESSAGES: dict[str, str] = {
     "refresh": "Zendesk comments refreshed.",
@@ -116,12 +133,26 @@ def _parse_observing(value: str | None) -> bool | None:
     return None
 
 
-def _tickets_url(
+def _parse_classification_decision(value: str | None) -> str | None:
+    if value in {CLASSIFICATION_DECISION_CUSTOMER, CLASSIFICATION_DECISION_SERVICE, CLASSIFICATION_DECISION_UNKNOWN}:
+        return value
+    return None
+
+
+def _parse_classification_source(value: str | None) -> str | None:
+    if value in {CLASSIFICATION_SOURCE_RULE, CLASSIFICATION_SOURCE_LLM}:
+        return value
+    return None
+
+
+def _tickets_url(  # noqa: PLR0913
     *,
     ticket_id: str,
     status: str,
     brand: str,
     observing: str,
+    classification_decision: str,
+    classification_source: str,
     limit: int,
     offset: int,
 ) -> str:
@@ -130,6 +161,8 @@ def _tickets_url(
         "status": status,
         "brand": brand,
         "observing": observing,
+        "classification_decision": classification_decision,
+        "classification_source": classification_source,
         "limit": str(limit),
         "offset": str(offset),
     }
@@ -346,6 +379,8 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
     status: str | None = None,
     brand: str | None = None,
     observing: str | None = None,
+    classification_decision: str | None = None,
+    classification_source: str | None = None,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Response:
@@ -354,6 +389,8 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
         status=_parse_status(status),
         brand=_parse_brand(brand),
         observing=_parse_observing(observing),
+        classification_decision=_parse_classification_decision(classification_decision),
+        classification_source=_parse_classification_source(classification_source),
     )
 
     async with session_local() as session:
@@ -369,6 +406,8 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
     selected_status = status or ""
     selected_brand = brand or ""
     selected_observing = observing or ""
+    selected_classification_decision = classification_decision or ""
+    selected_classification_source = classification_source or ""
     prev_offset = max(result.offset - result.limit, 0)
     next_offset = result.offset + result.limit
     response = templates.TemplateResponse(
@@ -383,9 +422,13 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
             "selected_status": selected_status,
             "selected_brand": selected_brand,
             "selected_observing": selected_observing,
+            "selected_classification_decision": selected_classification_decision,
+            "selected_classification_source": selected_classification_source,
             "statuses": list(TicketStatus),
             "brands": list(Brand),
             "observing_options": OBSERVING_OPTIONS,
+            "classification_decision_options": CLASSIFICATION_DECISION_OPTIONS,
+            "classification_source_options": CLASSIFICATION_SOURCE_OPTIONS,
             "limit": result.limit,
             "offset": result.offset,
             "prev_url": _tickets_url(
@@ -393,6 +436,8 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
                 status=selected_status,
                 brand=selected_brand,
                 observing=selected_observing,
+                classification_decision=selected_classification_decision,
+                classification_source=selected_classification_source,
                 limit=result.limit,
                 offset=prev_offset,
             ),
@@ -401,6 +446,8 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
                 status=selected_status,
                 brand=selected_brand,
                 observing=selected_observing,
+                classification_decision=selected_classification_decision,
+                classification_source=selected_classification_source,
                 limit=result.limit,
                 offset=next_offset,
             ),
@@ -414,7 +461,7 @@ async def get_tickets(  # noqa: PLR0913, PLR0917
 
 
 @router.get("/{ticket_id}")
-async def get_ticket_detail(  # noqa: PLR0913, PLR0917
+async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
     ticket_id: int,
     request: Request,
     user: Annotated[AdminUserEntity, Depends(require_role(UserRole.USER))],
@@ -427,6 +474,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0917
         tickets_repo = TicketsRepository(session)
         events_repo = EventsRepository(session)
         attempts_repo = TicketReplyAttemptsRepository(session)
+        classification_audits_repo = TicketClassificationAuditsRepository(session)
 
         try:
             ticket = await tickets_repo.get_ticket_by_id(ticket_id)
@@ -436,6 +484,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0917
         events = await events_repo.list_by_ticket(ticket_id)
         comment_events = [event for event in events if event.source_type == "comment"]
         attempts = await attempts_repo.list_by_ticket(ticket_id)
+        classification_audit = await classification_audits_repo.get_latest_by_ticket(ticket_id)
 
     fallback_comments: list[Comment] = []
     comments_error = None
@@ -468,6 +517,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0917
             "timeline_items": timeline_items,
             "comments_error": comments_error,
             "last_successful_attempt": last_successful_attempt,
+            "classification_audit": classification_audit,
             "zendesk_ticket_url": _zendesk_ticket_url(ticket_id),
             "flash": _ticket_flash(saved=saved, error=error, count=count),
         },

@@ -83,7 +83,7 @@
                 <small>{{ item.ticket.subject }}</small>
               </a>
             </td>
-            <td>{{ item.ticket.brand_id }}</td>
+            <td>{{ item.ticket.brand_id|brand_label }}</td>
             <td>
               <span class="status-pill {{ item.ticket.status.value }}">{{ item.ticket.status.value }}</span>
             </td>

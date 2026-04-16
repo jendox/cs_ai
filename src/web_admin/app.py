@@ -61,6 +61,20 @@ def create_app(settings: AppSettings) -> FastAPI:
         lifespan=lifespan,
     )
 
+    @app.get("/", include_in_schema=False)
+    async def root_redirect() -> RedirectResponse:
+        return RedirectResponse(
+            url="/admin/tickets",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @app.get("/admin", include_in_schema=False)
+    async def admin_redirect() -> RedirectResponse:
+        return RedirectResponse(
+            url="/admin/tickets",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:

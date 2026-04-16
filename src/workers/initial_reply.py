@@ -11,7 +11,14 @@ from src.ai.ticket_classifier import LLMTicketClassifier
 from src.db import session_local
 from src.db.models import LLMPromptKey
 from src.db.repositories import (
+    CLASSIFICATION_DECISION_CUSTOMER,
+    CLASSIFICATION_DECISION_SERVICE,
+    CLASSIFICATION_DECISION_UNKNOWN,
+    CLASSIFICATION_SOURCE_LLM,
+    CLASSIFICATION_SOURCE_RULE,
     OurPostsRepository,
+    TicketClassificationAuditCreate,
+    TicketClassificationAuditsRepository,
     TicketReplyAttemptsRepository,
     TicketsRepository,
     ZendeskRuntimeSettingsRepository,
@@ -63,6 +70,7 @@ class InitialReplyWorker(Service):
         async with (log_context(ticket.id, self.brand, iteration_id, JobType.INITIAL_REPLY)):
             async with session_local() as session:
                 tickets_repo = TicketsRepository(session)
+                classification_audits_repo = TicketClassificationAuditsRepository(session)
                 our_posts_repo = OurPostsRepository(session)
                 reply_attempts_repo = TicketReplyAttemptsRepository(session)
                 zendesk_repo = ZendeskRuntimeSettingsRepository(session)
@@ -75,7 +83,7 @@ class InitialReplyWorker(Service):
                 )
 
                 async with session.begin():
-                    if await self._filter_as_service(session, ticket):
+                    if await self._filter_as_service(session, classification_audits_repo, ticket):
                         return await self._mark_unobserved(tickets_repo, ticket)
 
                     channel = await zendesk_repo.get_channel()
@@ -102,24 +110,109 @@ class InitialReplyWorker(Service):
     async def _filter_as_service(
         self,
         session: AsyncSession,
+        classification_audits_repo: TicketClassificationAuditsRepository,
         ticket: Ticket,
     ) -> bool:
         tickets_filter = await tickets_filter_cache.get_filter(session, self.brand)
-        if tickets_filter.is_service_ticket(ticket):
+        rule_decision = tickets_filter.classify_ticket(ticket)
+        if rule_decision.is_service:
+            await classification_audits_repo.create(
+                TicketClassificationAuditCreate(
+                    ticket_id=ticket.id,
+                    brand_id=self.brand.value,
+                    decision=CLASSIFICATION_DECISION_SERVICE,
+                    source=CLASSIFICATION_SOURCE_RULE,
+                    rule=rule_decision.rule,
+                    detail=rule_decision.detail,
+                ),
+            )
             self.logger.info(
                 "tickets.filtered_as_service",
-                extra={"decision": "tickets_filter"},
+                extra={
+                    "decision": "tickets_filter",
+                    "classification_rule": rule_decision.rule,
+                    "classification_detail": rule_decision.detail,
+                },
             )
             return True
+        if rule_decision.rule is not None:
+            await classification_audits_repo.create(
+                TicketClassificationAuditCreate(
+                    ticket_id=ticket.id,
+                    brand_id=self.brand.value,
+                    decision=CLASSIFICATION_DECISION_CUSTOMER,
+                    source=CLASSIFICATION_SOURCE_RULE,
+                    rule=rule_decision.rule,
+                    detail=rule_decision.detail,
+                ),
+            )
+            self.logger.info(
+                "tickets.filtered_as_customer",
+                extra={
+                    "decision": "tickets_filter",
+                    "classification_rule": rule_decision.rule,
+                    "classification_detail": rule_decision.detail,
+                },
+            )
+            return False
         # Фильтрация AI
         decision = await self._ticket_classifier.decide(ticket)
+        if decision.error is not None:
+            await classification_audits_repo.create(
+                TicketClassificationAuditCreate(
+                    ticket_id=ticket.id,
+                    brand_id=self.brand.value,
+                    decision=CLASSIFICATION_DECISION_UNKNOWN,
+                    source=CLASSIFICATION_SOURCE_LLM,
+                    detail=decision.error,
+                    llm_category=decision.category.value,
+                    llm_confidence=decision.confidence,
+                    threshold=decision.threshold,
+                ),
+            )
+            self.logger.warning(
+                "tickets.classification_failed",
+                extra={
+                    "decision": "llm_tickets_classifier",
+                    "error": decision.error,
+                    "llm_category": decision.category.value,
+                    "llm_confidence": decision.confidence,
+                    "threshold": decision.threshold,
+                },
+            )
+            return False
+
+        await classification_audits_repo.create(
+            TicketClassificationAuditCreate(
+                ticket_id=ticket.id,
+                brand_id=self.brand.value,
+                decision=CLASSIFICATION_DECISION_SERVICE if decision.is_service else CLASSIFICATION_DECISION_CUSTOMER,
+                source=CLASSIFICATION_SOURCE_LLM,
+                llm_category=decision.category.value,
+                llm_confidence=decision.confidence,
+                threshold=decision.threshold,
+            ),
+        )
         if decision.is_service:
             self.logger.info(
                 "tickets.filtered_as_service",
-                extra={"decision": "llm_tickets_classifier"},
+                extra={
+                    "decision": "llm_tickets_classifier",
+                    "llm_category": decision.category.value,
+                    "llm_confidence": decision.confidence,
+                    "threshold": decision.threshold,
+                },
             )
             return True
-        self.logger.info("tickets.filtered_as_customer")
+        self.logger.info(
+            "tickets.filtered_as_customer",
+            extra={
+                "decision": "llm_tickets_classifier",
+                "llm_category": decision.category.value,
+                "llm_confidence": decision.confidence,
+                "threshold": decision.threshold,
+            },
+        )
         return False
 
     async def _mark_unobserved(self, tickets_repo: TicketsRepository, ticket: Ticket) -> bool:

@@ -167,7 +167,7 @@
                 <small>{{ item.iteration_id }}</small>
               {% endif %}
             </td>
-            <td>{{ item.brand_id }}</td>
+            <td>{{ item.brand_id|brand_label }}</td>
             <td>{{ item.job_type }}</td>
             <td>
               <span class="status-pill {{ item.status.value }}">{{ item.status.value }}</span>

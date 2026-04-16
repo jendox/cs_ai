@@ -46,11 +46,31 @@
     </div>
     <div>
       <span class="meta-label">Brand</span>
-      <strong>{{ ticket.brand_id if ticket else "-" }}</strong>
+      <strong>{{ ticket.brand_id|brand_label if ticket else "-" }}</strong>
     </div>
     <div>
       <span class="meta-label">Observing</span>
       <strong>{{ "yes" if ticket and ticket.observing else "no" }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Classification</span>
+      {% if classification_audit and classification_audit.decision == "unknown" and classification_audit.source == "llm" %}
+        <strong>failed</strong>
+        <small title="{{ classification_audit.detail or '' }}">
+          LLM classification failed
+          {% if classification_audit.llm_confidence is not none %} · {{ "%.2f"|format(classification_audit.llm_confidence) }}{% endif %}
+        </small>
+      {% elif classification_audit %}
+        <strong>{{ classification_audit.decision }}</strong>
+        <small>
+          {{ classification_audit.source }}
+          {% if classification_audit.rule %} · {{ classification_audit.rule }}{% endif %}
+          {% if classification_audit.llm_confidence is not none %} · {{ "%.2f"|format(classification_audit.llm_confidence) }}{% endif %}
+        </small>
+      {% else %}
+        <strong>unknown</strong>
+        <small>not audited yet</small>
+      {% endif %}
     </div>
     <div>
       <span class="meta-label">Last Seen</span>

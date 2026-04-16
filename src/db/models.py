@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Self
 
-from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ENUM, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import DateTime, TypeDecorator
@@ -165,6 +165,36 @@ class TicketReplyAttempt(Base):
         Index("idx_reply_attempts_ticket_created", "ticket_id", "created_at"),
         Index("idx_reply_attempts_status_created", "status", "created_at"),
         Index("idx_reply_attempts_brand_created", "brand_id", "created_at"),
+    )
+
+
+class TicketClassificationAudit(Base):
+    __tablename__ = "ticket_classification_audits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "tickets.ticket_id",
+            onupdate="CASCADE",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    rule: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    llm_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_ticket_classification_ticket_created", "ticket_id", "created_at"),
+        Index("idx_ticket_classification_decision_created", "decision", "created_at"),
+        Index("idx_ticket_classification_source_created", "source", "created_at"),
+        Index("idx_ticket_classification_brand_created", "brand_id", "created_at"),
     )
 
 

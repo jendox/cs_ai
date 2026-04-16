@@ -68,5 +68,10 @@ class GoogleLLMClient(LLMClientInterface):
             return text
 
         except Exception as exc:
-            self.logger.warning("llm.google.error", extra={"error": str(exc)})
+            error = str(exc)
+            self.logger.warning(
+                "llm.google.error: %s",
+                error,
+                extra={"error": error, "model": settings.model},
+            )
             return ""

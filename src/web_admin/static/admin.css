@@ -2,6 +2,7 @@
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-muted: #eef1f4;
+  --table-row-hover: #e2eef0;
   --text: #17202a;
   --muted: #65717f;
   --line: #d9dee5;
@@ -256,6 +257,26 @@ h2 {
 }
 
 .status-pill.public {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.status-pill.classification-customer {
+  background: var(--ok-bg);
+  color: var(--accent-strong);
+}
+
+.status-pill.classification-service {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-pill.classification-unknown {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.status-pill.classification-failed {
   background: var(--danger-bg);
   color: var(--danger);
 }
@@ -643,6 +664,14 @@ input[type="number"]::-webkit-inner-spin-button {
   line-height: 1.35;
 }
 
+.data-table tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.data-table tbody tr:hover {
+  background-color: var(--table-row-hover);
+}
+
 .data-table td strong,
 .data-table td small {
   display: block;
@@ -924,7 +953,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .tickets-filters-form {
-  grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 0.9fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(150px, 1fr) minmax(130px, 0.9fr) auto;
 }
 
 .playground-filters-form {
@@ -974,7 +1003,12 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .tickets-table {
-  min-width: 1160px;
+  min-width: 1320px;
+}
+
+.tickets-table td small {
+  display: block;
+  margin-top: 4px;
 }
 
 .ticket-attempts-table {

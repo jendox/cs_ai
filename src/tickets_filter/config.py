@@ -69,6 +69,17 @@ def _handler_add_spam_subject_pattern(
         spam_subject_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
 
 
+def _handler_add_spam_body_pattern(
+    spam_body_patterns: dict[str, re.Pattern],
+    rule: TicketsFilterRuleDTO,
+    value: str,
+    _value_lower: str,
+) -> None:
+    pattern_str = value if rule.is_regex else re.escape(value)
+    if pattern_str not in spam_body_patterns:
+        spam_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
+
+
 class TicketsFilterRuleKind(StrEnum):
     SYSTEM_DOMAIN = "system_domain"
     SYSTEM_ADDRESS = "system_address"
@@ -79,6 +90,7 @@ class TicketsFilterRuleKind(StrEnum):
     PLATFORM_TAG_HINT = "platform_tag_hint"
     API_ALLOWED_PATTERN = "api_allowed_pattern"
     SPAM_SUBJECT_PATTERN = "spam_subject_pattern"
+    SPAM_BODY_PATTERN = "spam_body_pattern"
 
 
 @dataclass
@@ -103,6 +115,7 @@ class FilterConfig:
     platform_tag_hints: tuple[str, ...]
     api_allowed_patterns: tuple[re.Pattern, ...]
     spam_subject_patterns: tuple[re.Pattern, ...]
+    spam_body_patterns: tuple[re.Pattern, ...]
 
     @classmethod
     def from_rules(cls, rules: list[TicketsFilterRuleDTO]) -> Self:
@@ -123,6 +136,7 @@ class FilterConfig:
         platform_tag_hints: set[str] = set()
         api_allowed_patterns: dict[str, re.Pattern] = {}
         spam_subject_patterns: dict[str, re.Pattern] = {}
+        spam_body_patterns: dict[str, re.Pattern] = {}
 
         handlers: dict[
             TicketsFilterRuleKind,
@@ -146,6 +160,8 @@ class FilterConfig:
                 partial(_handler_add_api_allowed_pattern, api_allowed_patterns),
             TicketsFilterRuleKind.SPAM_SUBJECT_PATTERN:
                 partial(_handler_add_spam_subject_pattern, spam_subject_patterns),
+            TicketsFilterRuleKind.SPAM_BODY_PATTERN:
+                partial(_handler_add_spam_body_pattern, spam_body_patterns),
         }
 
         cls._process_rules(rules, handlers)
@@ -160,6 +176,7 @@ class FilterConfig:
             platform_tag_hints=tuple(sorted(platform_tag_hints)),
             api_allowed_patterns=tuple(api_allowed_patterns.values()),
             spam_subject_patterns=tuple(spam_subject_patterns.values()),
+            spam_body_patterns=tuple(spam_body_patterns.values()),
         )
 
     @classmethod

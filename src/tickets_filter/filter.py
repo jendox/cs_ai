@@ -11,6 +11,7 @@ The filter is driven by rule sets stored in the database and evaluates:
 - delivery channel,
 - API-allowed user message patterns,
 - spam/marketing subject patterns.
+- spam/marketing body patterns.
 
 Public API:
 - RuleOutcome        — tri-state outcome for a rule.
@@ -240,6 +241,25 @@ class TicketsFilter:
 
         return RuleResult(RuleOutcome.ABSTAIN)
 
+    def _rule_spam_body(self, ticket: Ticket) -> RuleResult:
+        """
+        Detect clear marketing/spam/collaboration messages by body content.
+
+        This rule is intentionally driven only by explicit DB patterns, because
+        body-level matching has a higher false-positive risk than sender or
+        subject matching.
+        """
+
+        body = (ticket.description or "").strip()
+        if not body:
+            return RuleResult(RuleOutcome.ABSTAIN)
+
+        for pattern in self.config.spam_body_patterns:
+            if pattern.search(body):
+                return RuleResult(RuleOutcome.SERVICE, f"spam_body.pattern: {pattern.pattern}")
+
+        return RuleResult(RuleOutcome.ABSTAIN)
+
     def classify_ticket(self, ticket: Ticket) -> ServiceDecision:
         """
         Run the full rule pipeline and return a detailed classification result.
@@ -258,7 +278,7 @@ class TicketsFilter:
                 "allow",
                 extra=helpers.make_log_record(ticket, "api_exception", exc.reason),
             )
-            return ServiceDecision(is_service=False, rule="api_exception")
+            return ServiceDecision(is_service=False, rule="api_exception", detail=exc.reason)
 
         # 2. Ordered rule chain
         rules: list[tuple[str, Callable[[Ticket], RuleResult]]] = [
@@ -267,15 +287,16 @@ class TicketsFilter:
             ("tag_service", self._rule_tags_service),
             ("platform_combo", self._rule_platform_combo),
             ("spam_subject", self._rule_spam_marketing),
+            ("spam_body", self._rule_spam_body),
         ]
         for rule_name, rule_function in rules:
             result = rule_function(ticket)
             if result.outcome == RuleOutcome.SERVICE:
                 self.logger.info("skip", extra=helpers.make_log_record(ticket, rule_name, result.reason))
-                return ServiceDecision(is_service=True, rule=rule_name)
+                return ServiceDecision(is_service=True, rule=rule_name, detail=result.reason)
             if result.outcome == RuleOutcome.USER:
                 self.logger.info("allow", extra=helpers.make_log_record(ticket, rule_name, result.reason))
-                return ServiceDecision(is_service=False, rule=rule_name)
+                return ServiceDecision(is_service=False, rule=rule_name, detail=result.reason)
 
         # 3. If no rule fires → ticket is treated as a user ticket by default
         self.logger.info(

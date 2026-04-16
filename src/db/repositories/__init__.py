@@ -23,6 +23,15 @@ from .reply_attempts import (
     TicketReplyAttemptNotFound,
     TicketReplyAttemptsRepository,
 )
+from .ticket_classification_audits import (
+    CLASSIFICATION_DECISION_CUSTOMER,
+    CLASSIFICATION_DECISION_SERVICE,
+    CLASSIFICATION_DECISION_UNKNOWN,
+    CLASSIFICATION_SOURCE_LLM,
+    CLASSIFICATION_SOURCE_RULE,
+    TicketClassificationAuditCreate,
+    TicketClassificationAuditsRepository,
+)
 from .tickets import TicketFilters, TicketListItem, TicketListResult, TicketNotFound, TicketsRepository
 from .zendesk_settings import ZendeskRuntimeSettingsRepository
 
@@ -47,6 +56,13 @@ __all__ = [
     "ReplyAttemptJobSummary",
     "TicketReplyAttemptNotFound",
     "TicketReplyAttemptsRepository",
+    "CLASSIFICATION_DECISION_CUSTOMER",
+    "CLASSIFICATION_DECISION_SERVICE",
+    "CLASSIFICATION_DECISION_UNKNOWN",
+    "CLASSIFICATION_SOURCE_LLM",
+    "CLASSIFICATION_SOURCE_RULE",
+    "TicketClassificationAuditCreate",
+    "TicketClassificationAuditsRepository",
     "ReplyAttemptFilters",
     "ReplyAttemptListResult",
     "ReplyAttemptSummary",
