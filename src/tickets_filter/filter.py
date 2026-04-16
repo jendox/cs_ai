@@ -162,37 +162,6 @@ class TicketsFilter:
             return RuleResult(RuleOutcome.SERVICE, "tags_service.tag_prefix")
         return RuleResult(RuleOutcome.ABSTAIN)
 
-    def _rule_platform_combo(self, ticket: Ticket) -> RuleResult:
-        """
-        Detect platform/system-origin tickets based on tag-hints + delivery metadata.
-
-        A ticket is considered service-level when:
-        1. It contains a platform-indicative tag (amazon/ebay/shopify/tiktok/etc.),
-        2. AND one of the following is true:
-           - the sender is missing,
-           - the sender domain is a known system domain,
-           - the ticket was delivered through the 'api' channel.
-        """
-
-        tags = [tag.lower() for tag in helpers.get_tags(ticket)]
-        has_platform_tag = any(
-            hint in tag for tag in tags for hint in self.config.platform_tag_hints
-        )
-        if not has_platform_tag:
-            return RuleResult(RuleOutcome.ABSTAIN)
-
-        sender = helpers.get_sender_email(ticket)
-        via_channel = helpers.get_via_channel(ticket)
-
-        if not sender:
-            return RuleResult(RuleOutcome.SERVICE, "platform_combo.has_no_sender")
-        domain = helpers.email_domain(sender)
-        if domain in self.config.system_domains:
-            return RuleResult(RuleOutcome.SERVICE, f"platform_combo.system_domains: {domain}")
-        if via_channel == "api":
-            return RuleResult(RuleOutcome.SERVICE, f"platform_combo.via_channel: {via_channel}")
-        return RuleResult(RuleOutcome.ABSTAIN)
-
     def _rule_api_exceptions(self, ticket: Ticket) -> RuleResult:
         """
         Exceptions for platform API messages that actually contain new customer messages.
@@ -293,7 +262,7 @@ class TicketsFilter:
         Order of evaluation:
             1. API exceptions (may explicitly mark a ticket as user-level).
             2. Ordered rule chain:
-                 sender_strict → subject_pattern → tag_service → platform_combo → spam_subject
+                 sender_strict → subject_pattern → tag_service → spam_subject → spam_body
             3. If no rule fires → ticket is treated as a user ticket by default.
         """
 
@@ -323,7 +292,6 @@ class TicketsFilter:
             ("sender_strict", self._rule_sender_strict),
             ("subject_pattern", self._rule_subject),
             ("tag_service", self._rule_tags_service),
-            ("platform_combo", self._rule_platform_combo),
             ("spam_subject", self._rule_spam_marketing),
             ("spam_body", self._rule_spam_body),
         ]

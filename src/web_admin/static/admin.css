@@ -1388,6 +1388,9 @@ input[type="number"]::-webkit-inner-spin-button {
   border-radius: 8px;
   padding: 14px;
   background: var(--surface);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-actor-customer {
@@ -1570,8 +1573,16 @@ input[type="number"]::-webkit-inner-spin-button {
 
 .timeline-body {
   margin-left: 46px;
+  min-width: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   line-height: 1.5;
+}
+
+.timeline-body a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-attachments {

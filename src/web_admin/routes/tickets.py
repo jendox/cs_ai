@@ -844,6 +844,7 @@ async def run_ticket_classification(
                 session,
                 ticket=zendesk_ticket,
                 brand=brand,
+                force=True,
             )
 
     if result.decision == CLASSIFICATION_DECISION_CUSTOMER:
