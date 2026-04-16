@@ -135,7 +135,7 @@ async def get_playground(  # noqa: PLR0913, PLR0917
             offset=offset,
         )
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     selected_ticket_id = ticket_id or ""
     selected_status = status or ""
     selected_brand = brand or ""
@@ -237,7 +237,7 @@ async def get_playground_ticket(
         messages = await repo.list_messages(ticket_id)
         runs = await repo.list_runs(ticket_id)
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "playground_ticket.html",

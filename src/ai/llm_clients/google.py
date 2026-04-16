@@ -76,12 +76,14 @@ class GoogleLLMClient(LLMClientInterface):
             config_kwargs["tools"] = tools
 
         if response_model is not None:
-            # Pass a Pydantic model as response_schema so the SDK uses the
-            # model_validate_json path and populates response.parsed. Plain
-            # types.Schema + some models (e.g. gemini-2.5-flash-lite) still
-            # return prose or empty .text in production.
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = response_model
+            # Disable thinking for structured-output calls: the model
+            # doesn't need to reason, and on thinking-capable models the
+            # thinking tokens eat into max_output_tokens, truncating JSON.
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=0,
+            )
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 

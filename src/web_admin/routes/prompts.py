@@ -126,7 +126,7 @@ async def get_prompts(  # noqa: PLR0913, PLR0917
     async with PromptAdminService() as service:
         summaries, prompt = await _load_prompt_page(service, selected_brand, selected_key)
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "prompts.html",

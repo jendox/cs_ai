@@ -255,7 +255,7 @@ async def get_filter_rules(  # noqa: PLR0913, PLR0917
         url_params=url_params,
     )
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "filter_rules.html",

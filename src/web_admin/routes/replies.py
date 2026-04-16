@@ -155,7 +155,7 @@ async def get_replies(  # noqa: PLR0913, PLR0914, PLR0917
         )
         summary = await repo.get_summary(filters=filters)
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     selected_ticket_id = ticket_id or ""
     selected_status = status or ""
     selected_job_type = job_type or ""

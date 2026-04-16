@@ -20,7 +20,7 @@ async def login_page(
     request: Request,
     session_manager: Annotated[SessionManager, Depends(get_session_manager)],
 ) -> Response:
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "login.html",
@@ -37,7 +37,7 @@ def render_login_error(
     error: str,
     status_code: int = status.HTTP_401_UNAUTHORIZED,
 ) -> Response:
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "login.html",

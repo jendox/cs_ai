@@ -35,7 +35,7 @@ async def get_zendesk_mode(
             "message": "Invalid Zendesk mode.",
         }
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "zendesk_mode.html",

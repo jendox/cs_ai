@@ -38,7 +38,7 @@ class RuntimeResponseSettings(BaseLLMRuntimeSettings):
 class RuntimeClassificationSettings(BaseLLMRuntimeSettings):
     enabled: bool = True
     threshold: float = Field(default=0.8, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=128)
+    max_tokens: int = Field(default=1024)
 
 
 class LLMRuntimeSettingsStorage:

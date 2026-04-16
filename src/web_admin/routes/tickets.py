@@ -585,7 +585,7 @@ async def get_tickets(  # noqa: PLR0913, PLR0914, PLR0917
             offset=offset,
         )
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     selected_ticket_id = ticket_id or ""
     selected_status = status or ""
     selected_brand = brand or ""
@@ -696,7 +696,7 @@ async def get_ticket_detail(  # noqa: PLR0913, PLR0914, PLR0917
     )
     last_successful_attempt = _last_successful_attempt(attempts)
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "ticket_detail.html",

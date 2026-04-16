@@ -82,7 +82,7 @@ async def get_users(
         repo = AdminUsersRepository(session)
         users = await repo.list_users(include_inactive=True)
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "users.html",

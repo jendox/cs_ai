@@ -81,6 +81,15 @@ class SessionManager:
         signed = self._serializer.dumps({"csrf": raw})
         return CreatedCSRFToken(raw=raw, signed=signed)
 
+    def prepare_csrf(self, request) -> CreatedCSRFToken:
+        """Reuse valid CSRF cookie to avoid multi-tab token conflicts."""
+        existing = request.cookies.get(self.csrf_cookie_name)
+        if existing:
+            loaded = self.load_csrf_token(existing)
+            if loaded is not None:
+                return CreatedCSRFToken(raw=loaded.value, signed=existing)
+        return self.create_csrf_token()
+
     def load_csrf_token(self, token: str) -> CSRFToken | None:
         try:
             payload: dict[str, Any] = self._serializer.loads(

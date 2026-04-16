@@ -54,7 +54,7 @@ async def get_llm_settings(
     async with LLMAdminService() as service:
         settings = await service.get_settings()
 
-    csrf = session_manager.create_csrf_token()
+    csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
         request,
         "llm_settings.html",

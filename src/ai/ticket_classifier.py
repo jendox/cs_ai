@@ -117,7 +117,17 @@ class LLMTicketClassifier:
             return LLMClassificationResult(classification=MessageClassification(**data))
         except Exception as exc:
             error = str(exc)
-            self.logger.warning("llm_classify.error: %s", error, extra={"error": error})
+            self.logger.warning(
+                "llm_classify.error: %s",
+                error,
+                extra={
+                    "error": error,
+                    "raw_response": repr(text[:500]) if text else "<empty>",
+                    "model": settings.model,
+                    "provider": str(settings.provider),
+                    "max_tokens": settings.max_tokens,
+                },
+            )
             return LLMClassificationResult(classification=None, error=error)
 
     async def decide(self, ticket: Ticket, brand: Brand) -> LLMTicketDecision:
