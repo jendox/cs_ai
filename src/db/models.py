@@ -168,6 +168,119 @@ class TicketReplyAttempt(Base):
     )
 
 
+class LLMPlaygroundTicketStatus(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class LLMPlaygroundMessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class LLMPlaygroundRunStatus(StrEnum):
+    GENERATED = "generated"
+    FAILED = "failed"
+
+
+llm_playground_ticket_status_enum = ENUM(
+    LLMPlaygroundTicketStatus,
+    name="llm_playground_ticket_status_enum",
+    values_callable=lambda values: [item.value for item in values],
+)
+llm_playground_message_role_enum = ENUM(
+    LLMPlaygroundMessageRole,
+    name="llm_playground_message_role_enum",
+    values_callable=lambda values: [item.value for item in values],
+)
+llm_playground_run_status_enum = ENUM(
+    LLMPlaygroundRunStatus,
+    name="llm_playground_run_status_enum",
+    values_callable=lambda values: [item.value for item in values],
+)
+
+
+class LLMPlaygroundTicket(Base):
+    __tablename__ = "llm_playground_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    brand_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[LLMPlaygroundTicketStatus] = mapped_column(
+        llm_playground_ticket_status_enum,
+        nullable=False,
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        Index("idx_llm_playground_tickets_status_updated", "status", "updated_at"),
+        Index("idx_llm_playground_tickets_brand_updated", "brand_id", "updated_at"),
+    )
+
+
+class LLMPlaygroundMessage(Base):
+    __tablename__ = "llm_playground_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "llm_playground_tickets.id",
+            onupdate="CASCADE",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    role: Mapped[LLMPlaygroundMessageRole] = mapped_column(
+        llm_playground_message_role_enum,
+        nullable=False,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_llm_playground_messages_ticket_created", "ticket_id", "created_at"),
+    )
+
+
+class LLMPlaygroundRun(Base):
+    __tablename__ = "llm_playground_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "llm_playground_tickets.id",
+            onupdate="CASCADE",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    prompt_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[LLMPlaygroundRunStatus] = mapped_column(
+        llm_playground_run_status_enum,
+        nullable=False,
+    )
+    input_messages: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    output_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_llm_playground_runs_ticket_created", "ticket_id", "created_at"),
+        Index("idx_llm_playground_runs_status_created", "status", "created_at"),
+    )
+
+
 class Checkpoint(Base):
     __tablename__ = "checkpoints"
 

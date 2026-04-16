@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Playground #{{ ticket.id }} · CS Admin{% endblock %}
+{% block kicker %}LLM{% endblock %}
+{% block page_title %}Playground #{{ ticket.id }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>{{ ticket.subject }}</h2>
+      <p>Local conversation for testing current response settings and prompts.</p>
+    </div>
+    <div class="section-actions">
+      {% if ticket.status.value == "open" %}
+        <form method="post" action="/admin/playground/tickets/{{ ticket.id }}/generate-initial">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="icon-button icon-button-primary" type="submit" title="Generate initial reply" aria-label="Generate initial reply">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 3v4"></path>
+              <path d="M12 17v4"></path>
+              <path d="M3 12h4"></path>
+              <path d="M17 12h4"></path>
+              <path d="m5.6 5.6 2.8 2.8"></path>
+              <path d="m15.6 15.6 2.8 2.8"></path>
+              <path d="m18.4 5.6-2.8 2.8"></path>
+              <path d="m8.4 15.6-2.8 2.8"></path>
+            </svg>
+          </button>
+        </form>
+        <form method="post" action="/admin/playground/tickets/{{ ticket.id }}/generate-followup">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="icon-button" type="submit" title="Generate follow-up reply" aria-label="Generate follow-up reply">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M7 8h10"></path>
+              <path d="M7 12h7"></path>
+              <path d="M21 12a8 8 0 0 1-8 8H6l-3 3v-7a8 8 0 1 1 18-4Z"></path>
+            </svg>
+          </button>
+        </form>
+        <form method="post" action="/admin/playground/tickets/{{ ticket.id }}/close">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="icon-button" type="submit" title="Close playground ticket" aria-label="Close playground ticket">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m8 12 3 3 5-6"></path>
+              <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path>
+            </svg>
+          </button>
+        </form>
+      {% endif %}
+      <a class="icon-button" href="/admin/playground" title="Back to Playground" aria-label="Back to Playground">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M19 12H5"></path>
+          <path d="M12 19l-7-7 7-7"></path>
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div>
+      <span class="meta-label">Status</span>
+      <strong>{{ ticket.status.value }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Brand</span>
+      <strong>{{ ticket.brand_id }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Messages</span>
+      <strong>{{ messages|length }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Runs</span>
+      <strong>{{ runs|length }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Created By</span>
+      <strong>{{ ticket.created_by }}</strong>
+    </div>
+    <div>
+      <span class="meta-label">Updated</span>
+      <strong>{{ ticket.updated_at.strftime("%Y-%m-%d %H:%M:%S") if ticket.updated_at else "-" }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Conversation</h2>
+      <p>Customer messages and generated assistant replies.</p>
+    </div>
+  </div>
+
+  <div class="playground-chat">
+    {% for message in messages %}
+      <article class="playground-message {{ message.role.value }}">
+        <div class="playground-message-meta">
+          <strong>{{ "Assistant" if message.role.value == "assistant" else "Customer" }}</strong>
+          <span>{{ message.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span>
+          {% if message.model %}
+            <span>{{ message.model }}</span>
+          {% endif %}
+          {% if message.prompt_key %}
+            <span>{{ message.prompt_key }}</span>
+          {% endif %}
+        </div>
+        <div class="playground-message-body">{{ message.body }}</div>
+      </article>
+    {% else %}
+      <p class="empty-state">No messages found.</p>
+    {% endfor %}
+  </div>
+
+  {% if ticket.status.value == "open" %}
+    <form class="form playground-reply-form" method="post" action="/admin/playground/tickets/{{ ticket.id }}/messages">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="field">
+        <span>Customer Reply</span>
+        <textarea name="body" rows="5" required></textarea>
+      </label>
+      <button class="button button-primary" type="submit">Add Customer Reply</button>
+    </form>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Generation Runs</h2>
+      <p>Prompt key, model, generated output, and errors.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table playground-runs-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Prompt</th>
+          <th>Status</th>
+          <th>Model</th>
+          <th>Output</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+          <tr>
+            <td>{{ run.created_at.strftime("%Y-%m-%d %H:%M:%S") if run.created_at else "-" }}</td>
+            <td>{{ run.prompt_key }}</td>
+            <td>
+              <span class="status-pill {{ run.status.value }}">{{ run.status.value }}</span>
+            </td>
+            <td>
+              {% if run.model %}
+                <strong>{{ run.model }}</strong>
+                {% if run.provider %}
+                  <small>{{ run.provider }}</small>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if run.output_body %}
+                <small>{{ run.output_body }}</small>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if run.error %}
+                <small>{{ run.error }}</small>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6">No generation runs found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

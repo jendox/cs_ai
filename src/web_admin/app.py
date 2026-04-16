@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -5,11 +6,18 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from src.ai.amazon_mcp_client import AmazonMCPHttpClient
+from src.ai.config import LLMRuntimeSettingsStorage
+from src.ai.config.prompt import LLMPromptStorage
+from src.ai.context import LLMContext
+from src.ai.llm_clients.pool import LLMClientPool
 from src.config import AppSettings
 from src.db.sa import Database
 from src.web_admin.bootstrap import bootstrap_superadmin
 from src.web_admin.routes import router
 from src.web_admin.templates import WEB_ADMIN_DIR, templates
+
+logger = logging.getLogger("web_admin.app")
 
 
 def _error_message(exc: HTTPException) -> str:
@@ -20,10 +28,31 @@ def _error_message(exc: HTTPException) -> str:
     return "The request could not be completed."
 
 
+@asynccontextmanager
+async def _setup_optional_mcp_client(url: str) -> AsyncIterator[AmazonMCPHttpClient]:
+    try:
+        async with AmazonMCPHttpClient.setup(url) as client:
+            yield client
+    except Exception as error:
+        logger.warning("mcp.startup.failed", extra={"error": str(error)})
+        async with AmazonMCPHttpClient.setup(url, connect=False) as client:
+            yield client
+
+
 def create_app(settings: AppSettings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app_: FastAPI) -> AsyncIterator[None]:
-        async with Database.lifespan(url=settings.postgres.url):
+        async with (
+            Database.lifespan(url=settings.postgres.url),
+            _setup_optional_mcp_client(settings.mcp.url),
+        ):
+            amazon_mcp_client = AmazonMCPHttpClient.get_initialized_instance()
+            app_.state.llm_context = LLMContext(
+                client_pool=LLMClientPool(settings.llm),
+                runtime_storage=LLMRuntimeSettingsStorage(),
+                prompt_storage=LLMPromptStorage(),
+                amazon_mcp_client=amazon_mcp_client,
+            )
             await bootstrap_superadmin(settings.web)
             yield
 

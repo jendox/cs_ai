@@ -39,6 +39,8 @@ This project addresses that with an event-driven pipeline:
   - Zendesk comment mode (`internal` vs `public`),
   - LLM response/classification runtime settings,
   - prompt viewing/export/editing,
+  - production ticket history and bot reply attempts,
+  - LLM playground for isolated prompt/model testing,
   - web-admin user management.
 - Structured JSON logging with context and secret redaction.
 
@@ -109,6 +111,16 @@ uv sync
 
 3. Start infra (`postgres`, `rabbitmq`, `amazon-mcp`) via compose in `deploy/`.
 
+Useful Make targets:
+
+```bash
+make up          # root docker-compose.yml: postgres + rabbitmq
+make mcp-build   # build amazon-mcp:dev from ../amazon_mcp
+make mcp-up      # start only amazon-mcp from deploy/docker-compose.dev.yml
+make mcp-logs    # follow amazon-mcp logs
+make mcp-down    # stop amazon-mcp
+```
+
 4. Apply migrations:
 
 ```bash
@@ -147,6 +159,9 @@ user.
 Available sections:
 
 - `Zendesk` - switch generated comments between internal notes and public replies.
+- `Tickets` - local production Zendesk tickets, activity counters, conversation timeline, refresh from Zendesk, and direct Zendesk link.
+- `Replies` - generated/posted/failed reply attempts with filters, pagination, summary cards, and job/status breakdown.
+- `Playground` - admin-only isolated LLM sandbox for local test conversations.
 - `LLM Settings` - update response and classification runtime parameters.
 - `Prompts` - view/export prompts; users with `admin` or `superadmin` can edit.
 - `Users` - superadmin-only management for web-admin users.
@@ -154,7 +169,7 @@ Available sections:
 Web-admin roles:
 
 - `user` - read-only access to runtime pages.
-- `admin` - can update Zendesk mode, LLM settings, and prompts.
+- `admin` - can update Zendesk mode, LLM settings, prompts, and use Playground.
 - `superadmin` - can also manage web-admin users.
 
 Before first Web Admin start, apply migrations:
@@ -165,6 +180,51 @@ uv run alembic upgrade head
 
 The `admin_users` table is required for login. The bootstrap superadmin is
 created automatically by `run_web.py`.
+
+The Web Admin initializes LLM runtime context for Playground. If the local MCP
+server is not running, Web Admin still starts and logs a warning; generation
+runs that require MCP tools may fail and are stored as failed playground runs.
+
+### Tickets and Replies
+
+Production ticket analysis lives in two related sections:
+
+- `Tickets` (`/admin/tickets`) lists locally observed Zendesk tickets with
+  filters by ticket id, status, brand, and observing state.
+- `Ticket Detail` (`/admin/tickets/{ticket_id}`) shows ticket summary,
+  Zendesk/customer/agent/bot timeline, bot attempts, refresh action, and a
+  direct Zendesk link.
+- `Replies` (`/admin/replies`) lists reply attempts across tickets with
+  filters by ticket id prefix, status, job type, brand, and period.
+
+Old `/admin/replies/tickets/{ticket_id}` URLs redirect to the new ticket detail
+route.
+
+### LLM Playground
+
+Playground is isolated from production Zendesk data and requires `admin` or
+`superadmin`.
+
+Routes:
+
+- `GET /admin/playground`
+- `POST /admin/playground/tickets`
+- `GET /admin/playground/tickets/{id}`
+- `POST /admin/playground/tickets/{id}/messages`
+- `POST /admin/playground/tickets/{id}/generate-initial`
+- `POST /admin/playground/tickets/{id}/generate-followup`
+- `POST /admin/playground/tickets/{id}/close`
+
+Data is stored in separate tables:
+
+- `llm_playground_tickets`
+- `llm_playground_messages`
+- `llm_playground_runs`
+
+Playground uses the same response runtime settings and prompts as production
+reply generation. To test different models, change `LLM Settings` first, then
+run generation in Playground. Generated assistant messages and failed runs are
+stored in the playground tables only.
 
 ## Docker (Dev/Prod)
 
@@ -188,6 +248,10 @@ Web Admin is available at:
 
 - `GET /admin/login`
 - `GET /admin/zendesk/mode`
+- `GET /admin/tickets`
+- `GET /admin/tickets/{ticket_id}`
+- `GET /admin/replies`
+- `GET /admin/playground` (`admin` and `superadmin`)
 - `GET /admin/llm`
 - `GET /admin/prompts`
 - `GET /admin/users` (`superadmin` only)
@@ -196,6 +260,7 @@ Web Admin is available at:
 
 - Active LLM provider in runtime: Google.
 - Current production setup uses one supported brand.
+- Playground model/provider override is controlled through global `LLM Settings`; there is no per-run override in the first MVP.
 - `AgentDirectiveWorker` exists as a stub and is not enabled in app startup.
 
 ## Why It Is Portfolio-Worthy
@@ -211,5 +276,6 @@ This is a strong backend portfolio project because it demonstrates:
 
 - Add tests (unit + integration + contract tests for external APIs).
 - Add metrics/health endpoints and dashboarding.
+- Add per-run model override in Playground.
 - Finalize `AgentDirectiveWorker`.
 - Extend multi-brand and multi-provider runtime controls.

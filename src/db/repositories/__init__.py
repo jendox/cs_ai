@@ -2,6 +2,16 @@ from .admin_users import AdminUserNotFound, AdminUsersRepository
 from .checkpoints import CheckpointsRepository
 from .events import EventsRepository
 from .filter_rule import TicketsFilterRuleRepository
+from .llm_playground import (
+    LLMPlaygroundFilters,
+    LLMPlaygroundMessageCreate,
+    LLMPlaygroundRepository,
+    LLMPlaygroundRunCreate,
+    LLMPlaygroundTicketCreate,
+    LLMPlaygroundTicketListItem,
+    LLMPlaygroundTicketListResult,
+    LLMPlaygroundTicketNotFound,
+)
 from .locks import AcquireLockError, LocksRepository
 from .our_posts import OurPostsRepository
 from .reply_attempts import (
@@ -24,6 +34,14 @@ __all__ = [
     "TicketsFilterRuleRepository",
     "AcquireLockError",
     "LocksRepository",
+    "LLMPlaygroundFilters",
+    "LLMPlaygroundMessageCreate",
+    "LLMPlaygroundRepository",
+    "LLMPlaygroundRunCreate",
+    "LLMPlaygroundTicketCreate",
+    "LLMPlaygroundTicketListItem",
+    "LLMPlaygroundTicketListResult",
+    "LLMPlaygroundTicketNotFound",
     "OurPostsRepository",
     "ReplyAttemptCreate",
     "ReplyAttemptJobSummary",

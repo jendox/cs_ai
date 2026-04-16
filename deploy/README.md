@@ -33,6 +33,15 @@ Build Amazon MCP image (from sibling repo):
 docker build -f deploy/Dockerfile.mcp -t amazon-mcp:dev ../amazon_mcp
 ```
 
+The project `Makefile` also exposes convenience commands:
+
+```bash
+make mcp-build
+make mcp-up
+make mcp-logs
+make mcp-down
+```
+
 Optional push to Docker Hub:
 
 ```bash
@@ -68,6 +77,14 @@ uv run python run_web.py
 
 The Web Admin uses the same database and env file values. It is not started by
 the current compose files. Default URL: `http://localhost:8080/admin/login`.
+For LLM Playground tests that use Amazon tools, keep `amazon-mcp` running:
+
+```bash
+make mcp-up
+```
+
+If MCP is not available, Web Admin still starts, but tool-dependent Playground
+generation runs may be stored as failed runs.
 
 ## 5) Run PROD stack on VPS
 
@@ -119,6 +136,6 @@ the user does not exist yet.
 - `MCP__HOST` must stay `amazon-mcp` for container-to-container access.
 - RabbitMQ management port (`15672`) is exposed only in dev compose.
 - Apply migrations before starting Web Admin; login requires the `admin_users`
-  table.
+  table and Playground requires `llm_playground_*` tables.
 - Keep `WEB__SESSION_SECRET` stable across restarts, otherwise existing admin
   sessions and CSRF cookies become invalid.

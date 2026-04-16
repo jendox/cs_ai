@@ -68,7 +68,7 @@ class AmazonMCPHttpClient:
 
     @classmethod
     @asynccontextmanager
-    async def setup(cls, url: str) -> AsyncIterator[AmazonMCPHttpClient]:
+    async def setup(cls, url: str, *, connect: bool = True) -> AsyncIterator[AmazonMCPHttpClient]:
         """
         Application-level lifespan context manager.
 
@@ -89,8 +89,9 @@ class AmazonMCPHttpClient:
             cls._initialized_instance = cls(url)
 
         try:
-            # ensure MCP transport is up
-            await cls._initialized_instance._get_client()
+            if connect:
+                # ensure MCP transport is up
+                await cls._initialized_instance._get_client()
             yield cls._initialized_instance
         finally:
             await cls._initialized_instance.close()
