@@ -45,7 +45,11 @@ class TicketsFilterCache:
         if cached is not None and cached.version == checkpoint_value:
             return cached.filter_
 
-        rules = await rules_repo.list_rules(is_active=True)
+        rules = [
+            rule
+            for rule in await rules_repo.list_rules(is_active=True)
+            if rule.brand_id is None or rule.brand_id == brand.value
+        ]
         config = FilterConfig.from_rules([TicketsFilterRuleDTO.from_entity(rule) for rule in rules])
         filter_ = TicketsFilter(config)
 

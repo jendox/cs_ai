@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}CS Admin{% endblock %}</title>
   <link rel="stylesheet" href="/admin/static/admin.css">
+  <link rel="icon" href="/admin/static/favicon.ico" type="image/x-icon">
 </head>
 <body class="{% block body_class %}admin-shell{% endblock %}">
   {% block body %}
@@ -31,6 +32,9 @@
         {% if current_user and current_user.role.level >= 2 %}
           <a class="nav-link {% if active_page == 'playground' %}is-active{% endif %}" href="/admin/playground">
             Playground
+          </a>
+          <a class="nav-link {% if active_page == 'filter_rules' %}is-active{% endif %}" href="/admin/filter-rules">
+            Filter Rules
           </a>
         {% endif %}
         <a class="nav-link {% if active_page == 'llm' %}is-active{% endif %}" href="/admin/llm">

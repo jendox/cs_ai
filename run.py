@@ -7,8 +7,7 @@ from src import config
 from src.logs import LogEnvironment, TelegramHandler, build_logging_config
 
 if __name__ == "__main__":
-    app_settings = config.AppSettings.load()
-    config.app_settings.set(app_settings)
+    app_settings = config.get_app_settings()
     telegram_handler = None
     if app_settings.telegram.enabled:
         telegram_handler = TelegramHandler(

@@ -1,11 +1,9 @@
-from contextvars import ContextVar
 from enum import StrEnum
+from functools import lru_cache
 from typing import Self
 
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-app_settings: ContextVar["AppSettings"] = ContextVar("app_settings")
 
 
 class ZendeskSettings(BaseModel):
@@ -147,3 +145,8 @@ class AppSettings(BaseSettings):
     @classmethod
     def load(cls) -> Self:
         return cls()
+
+
+@lru_cache(maxsize=1)
+def get_app_settings() -> AppSettings:
+    return AppSettings.load()

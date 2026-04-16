@@ -170,7 +170,7 @@ def _tickets_url(  # noqa: PLR0913
 
 
 def _zendesk_ticket_url(ticket_id: int) -> str:
-    settings = config.app_settings.get()
+    settings = config.get_app_settings()
     subdomain = settings.zendesk.subdomain.strip()
     return f"https://{subdomain}.zendesk.com/agent/tickets/{ticket_id}"
 
@@ -200,7 +200,7 @@ def _event_created_at(event: EventEntity) -> datetime:
 
 
 async def _load_zendesk_comments(ticket_id: int) -> tuple[list[Comment], str | None]:
-    settings = config.app_settings.get()
+    settings = config.get_app_settings()
     try:
         async with create_zendesk_client(settings.zendesk) as client:
             return await client.get_ticket_comments(ticket_id), None

@@ -1,7 +1,7 @@
 from .admin_users import AdminUserNotFound, AdminUsersRepository
 from .checkpoints import CheckpointsRepository
 from .events import EventsRepository
-from .filter_rule import TicketsFilterRuleRepository
+from .filter_rule import TicketsFilterRuleNotFound, TicketsFilterRuleRepository
 from .llm_playground import (
     LLMPlaygroundFilters,
     LLMPlaygroundMessageCreate,
@@ -41,6 +41,7 @@ __all__ = [
     "CheckpointsRepository",
     "EventsRepository",
     "TicketsFilterRuleRepository",
+    "TicketsFilterRuleNotFound",
     "AcquireLockError",
     "LocksRepository",
     "LLMPlaygroundFilters",

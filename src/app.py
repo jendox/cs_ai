@@ -22,7 +22,7 @@ logger = logging.getLogger("cs")
 async def app():
     logger.info("app.up")
     try:
-        settings = config.app_settings.get()
+        settings = config.get_app_settings()
         amqp_url = settings.rabbitmq.amqp_url
         async with (
             Database.lifespan(url=settings.postgres.url),

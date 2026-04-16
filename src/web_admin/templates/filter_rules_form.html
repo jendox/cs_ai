@@ -1,0 +1,49 @@
+<form class="form" method="post" action="{% if rule %}/admin/filter-rules/{{ rule.id }}{% else %}/admin/filter-rules{% endif %}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <label class="field">
+    <span>Kind</span>
+    <select name="kind" required>
+      {% for item in rule_kinds %}
+        <option value="{{ item.value }}" {% if rule and rule.kind == item.value %}selected{% endif %}>{{ item.value }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field">
+    <span>Value</span>
+    <textarea name="value" maxlength="128" rows="4" required>{{ rule.value if rule else "" }}</textarea>
+    <small>Maximum 128 characters.</small>
+  </label>
+
+  <label class="choice-row">
+    <input type="checkbox" name="is_regex" value="true" {% if rule and rule.is_regex %}checked{% endif %}>
+    <span>Regular expression</span>
+  </label>
+
+  <div class="form-row">
+    <label class="field">
+      <span>Brand</span>
+      <select name="brand_id">
+        <option value="">Any</option>
+        {% for item in brands %}
+          <option value="{{ item.value }}" {% if rule and rule.brand_id == item.value %}selected{% endif %}>
+            {{ item.short }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Via Channel</span>
+      <input name="via_channel" type="text" value="{{ rule.via_channel if rule and rule.via_channel else "" }}" placeholder="email, api, ...">
+    </label>
+  </div>
+
+  <label class="field">
+    <span>Comment</span>
+    <textarea name="comment" rows="3">{{ rule.comment if rule and rule.comment else "" }}</textarea>
+  </label>
+
+  <button class="button button-primary" type="submit">{% if rule %}Save Rule{% else %}Create Rule{% endif %}</button>
+</form>

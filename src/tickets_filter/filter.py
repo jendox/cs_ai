@@ -27,7 +27,7 @@ from enum import Enum, auto
 
 from src.libs.zendesk_client.models import Ticket
 from src.tickets_filter import helpers
-from src.tickets_filter.config import FilterConfig
+from src.tickets_filter.config import FilterConfig, ScopedPattern
 
 __all__ = (
     "TicketsFilter",
@@ -94,6 +94,12 @@ class TicketsFilter:
         self.config = config
         self.logger = logging.getLogger("tickets_filter")
 
+    @staticmethod
+    def _pattern_applies(pattern: ScopedPattern, ticket: Ticket) -> bool:
+        if pattern.via_channel is None:
+            return True
+        return helpers.get_via_channel(ticket) == pattern.via_channel
+
     def _rule_sender_strict(self, ticket: Ticket) -> RuleResult:
         """
         Identify system-generated tickets based on sender information.
@@ -134,9 +140,9 @@ class TicketsFilter:
         subject = helpers.get_subject(ticket).lower()
         if not subject:
             return RuleResult(RuleOutcome.ABSTAIN)
-        for pattern in self.config.subject_patterns:
-            if pattern.search(subject):
-                return RuleResult(RuleOutcome.SERVICE, reason=f"rule_subject.pattern: {pattern.pattern}")
+        for scoped_pattern in self.config.subject_patterns:
+            if self._pattern_applies(scoped_pattern, ticket) and scoped_pattern.pattern.search(subject):
+                return RuleResult(RuleOutcome.SERVICE, reason=f"rule_subject.pattern: {scoped_pattern.pattern.pattern}")
         return RuleResult(RuleOutcome.ABSTAIN)
 
     def _rule_tags_service(self, ticket: Ticket) -> RuleResult:
@@ -200,9 +206,9 @@ class TicketsFilter:
         if not subject:
             return RuleResult(RuleOutcome.ABSTAIN)
 
-        for pattern in self.config.api_allowed_patterns:
-            if pattern.search(subject):
-                return RuleResult(RuleOutcome.USER, f"api_exceptions.pattern: {pattern.pattern}")
+        for scoped_pattern in self.config.api_allowed_patterns:
+            if self._pattern_applies(scoped_pattern, ticket) and scoped_pattern.pattern.search(subject):
+                return RuleResult(RuleOutcome.USER, f"api_exceptions.pattern: {scoped_pattern.pattern.pattern}")
         return RuleResult(RuleOutcome.ABSTAIN)
 
     def _rule_customer_body_exceptions(self, ticket: Ticket) -> RuleResult:
@@ -218,9 +224,9 @@ class TicketsFilter:
         if not body:
             return RuleResult(RuleOutcome.ABSTAIN)
 
-        for pattern in self.config.customer_body_patterns:
-            if pattern.search(body):
-                return RuleResult(RuleOutcome.USER, f"customer_body.pattern: {pattern.pattern}")
+        for scoped_pattern in self.config.customer_body_patterns:
+            if self._pattern_applies(scoped_pattern, ticket) and scoped_pattern.pattern.search(body):
+                return RuleResult(RuleOutcome.USER, f"customer_body.pattern: {scoped_pattern.pattern.pattern}")
 
         return RuleResult(RuleOutcome.ABSTAIN)
 
@@ -255,9 +261,9 @@ class TicketsFilter:
         if not subject:
             return RuleResult(RuleOutcome.ABSTAIN)
 
-        for pattern in self.config.spam_subject_patterns:
-            if pattern.search(subject):
-                return RuleResult(RuleOutcome.SERVICE, f"spam_marketing.pattern: {pattern.pattern}")
+        for scoped_pattern in self.config.spam_subject_patterns:
+            if self._pattern_applies(scoped_pattern, ticket) and scoped_pattern.pattern.search(subject):
+                return RuleResult(RuleOutcome.SERVICE, f"spam_marketing.pattern: {scoped_pattern.pattern.pattern}")
 
         return RuleResult(RuleOutcome.ABSTAIN)
 
@@ -274,9 +280,9 @@ class TicketsFilter:
         if not body:
             return RuleResult(RuleOutcome.ABSTAIN)
 
-        for pattern in self.config.spam_body_patterns:
-            if pattern.search(body):
-                return RuleResult(RuleOutcome.SERVICE, f"spam_body.pattern: {pattern.pattern}")
+        for scoped_pattern in self.config.spam_body_patterns:
+            if self._pattern_applies(scoped_pattern, ticket) and scoped_pattern.pattern.search(body):
+                return RuleResult(RuleOutcome.SERVICE, f"spam_body.pattern: {scoped_pattern.pattern.pattern}")
 
         return RuleResult(RuleOutcome.ABSTAIN)
 

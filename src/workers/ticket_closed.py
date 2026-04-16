@@ -1,7 +1,6 @@
 import uuid
 from typing import cast
 
-from log_context import log_context
 from pydantic import ValidationError
 
 from src.db import session_local
@@ -11,6 +10,8 @@ from src.jobs.rabbitmq_queue import create_job_queue
 from src.libs.zendesk_client.client import ZendeskClient
 from src.libs.zendesk_client.models import Brand
 from src.services import Service
+
+from .log_context import log_context
 
 
 class TicketClosedWorker(Service):

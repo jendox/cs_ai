@@ -14,7 +14,21 @@ if typing.TYPE_CHECKING:
 __all__ = (
     "TicketsFilterRuleKind",
     "FilterConfig",
+    "ScopedPattern",
 )
+
+
+@dataclass(frozen=True)
+class ScopedPattern:
+    pattern: re.Pattern
+    via_channel: str | None = None
+
+
+def _normalized_via_channel(rule: TicketsFilterRuleDTO) -> str | None:
+    if rule.via_channel is None:
+        return None
+    normalized = rule.via_channel.strip().lower()
+    return normalized or None
 
 
 def _handler_add_to_set(
@@ -27,14 +41,19 @@ def _handler_add_to_set(
 
 
 def _handler_add_subject_pattern(
-    subject_patterns: dict[str, re.Pattern],
+    subject_patterns: dict[tuple[str, str | None], ScopedPattern],
     rule: TicketsFilterRuleDTO,
     value: str,
     _value_lower: str,
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
-    if pattern_str not in subject_patterns:
-        subject_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
+    via_channel = _normalized_via_channel(rule)
+    key = (pattern_str, via_channel)
+    if key not in subject_patterns:
+        subject_patterns[key] = ScopedPattern(
+            pattern=re.compile(pattern_str, re.IGNORECASE),
+            via_channel=via_channel,
+        )
 
 
 def _handler_add_service_tag_prefix(
@@ -48,47 +67,67 @@ def _handler_add_service_tag_prefix(
 
 
 def _handler_add_api_allowed_pattern(
-    api_allowed_patterns: dict[str, re.Pattern],
+    api_allowed_patterns: dict[tuple[str, str | None], ScopedPattern],
     rule: TicketsFilterRuleDTO,
     value: str,
     _value_lower: str,
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
-    if pattern_str not in api_allowed_patterns:
-        api_allowed_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
+    via_channel = _normalized_via_channel(rule)
+    key = (pattern_str, via_channel)
+    if key not in api_allowed_patterns:
+        api_allowed_patterns[key] = ScopedPattern(
+            pattern=re.compile(pattern_str, re.IGNORECASE),
+            via_channel=via_channel,
+        )
 
 
 def _handler_add_customer_body_pattern(
-    customer_body_patterns: dict[str, re.Pattern],
+    customer_body_patterns: dict[tuple[str, str | None], ScopedPattern],
     rule: TicketsFilterRuleDTO,
     value: str,
     _value_lower: str,
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
-    if pattern_str not in customer_body_patterns:
-        customer_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
+    via_channel = _normalized_via_channel(rule)
+    key = (pattern_str, via_channel)
+    if key not in customer_body_patterns:
+        customer_body_patterns[key] = ScopedPattern(
+            pattern=re.compile(pattern_str, re.IGNORECASE | re.DOTALL),
+            via_channel=via_channel,
+        )
 
 
 def _handler_add_spam_subject_pattern(
-    spam_subject_patterns: dict[str, re.Pattern],
+    spam_subject_patterns: dict[tuple[str, str | None], ScopedPattern],
     rule: TicketsFilterRuleDTO,
     value: str,
     _value_lower: str,
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
-    if pattern_str not in spam_subject_patterns:
-        spam_subject_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE)
+    via_channel = _normalized_via_channel(rule)
+    key = (pattern_str, via_channel)
+    if key not in spam_subject_patterns:
+        spam_subject_patterns[key] = ScopedPattern(
+            pattern=re.compile(pattern_str, re.IGNORECASE),
+            via_channel=via_channel,
+        )
 
 
 def _handler_add_spam_body_pattern(
-    spam_body_patterns: dict[str, re.Pattern],
+    spam_body_patterns: dict[tuple[str, str | None], ScopedPattern],
     rule: TicketsFilterRuleDTO,
     value: str,
     _value_lower: str,
 ) -> None:
     pattern_str = value if rule.is_regex else re.escape(value)
-    if pattern_str not in spam_body_patterns:
-        spam_body_patterns[pattern_str] = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
+    via_channel = _normalized_via_channel(rule)
+    key = (pattern_str, via_channel)
+    if key not in spam_body_patterns:
+        spam_body_patterns[key] = ScopedPattern(
+            pattern=re.compile(pattern_str, re.IGNORECASE | re.DOTALL),
+            via_channel=via_channel,
+        )
 
 
 class TicketsFilterRuleKind(StrEnum):
@@ -121,14 +160,14 @@ class FilterConfig:
     system_domains: set[str]
     system_addresses: set[str]
     address_hints: tuple[str, ...]
-    subject_patterns: tuple[re.Pattern, ...]
+    subject_patterns: tuple[ScopedPattern, ...]
     service_tags_exact: set[str]
     service_tags_prefixes: tuple[str, ...]
     platform_tag_hints: tuple[str, ...]
-    api_allowed_patterns: tuple[re.Pattern, ...]
-    customer_body_patterns: tuple[re.Pattern, ...]
-    spam_subject_patterns: tuple[re.Pattern, ...]
-    spam_body_patterns: tuple[re.Pattern, ...]
+    api_allowed_patterns: tuple[ScopedPattern, ...]
+    customer_body_patterns: tuple[ScopedPattern, ...]
+    spam_subject_patterns: tuple[ScopedPattern, ...]
+    spam_body_patterns: tuple[ScopedPattern, ...]
 
     @classmethod
     def from_rules(cls, rules: list[TicketsFilterRuleDTO]) -> Self:
@@ -143,14 +182,14 @@ class FilterConfig:
         system_domains: set[str] = set()
         system_addresses: set[str] = set()
         address_hints: set[str] = set()
-        subject_patterns: dict[str, re.Pattern] = {}
+        subject_patterns: dict[tuple[str, str | None], ScopedPattern] = {}
         service_tags_exact: set[str] = set()
         service_tags_prefixes: list[str] = []
         platform_tag_hints: set[str] = set()
-        api_allowed_patterns: dict[str, re.Pattern] = {}
-        customer_body_patterns: dict[str, re.Pattern] = {}
-        spam_subject_patterns: dict[str, re.Pattern] = {}
-        spam_body_patterns: dict[str, re.Pattern] = {}
+        api_allowed_patterns: dict[tuple[str, str | None], ScopedPattern] = {}
+        customer_body_patterns: dict[tuple[str, str | None], ScopedPattern] = {}
+        spam_subject_patterns: dict[tuple[str, str | None], ScopedPattern] = {}
+        spam_body_patterns: dict[tuple[str, str | None], ScopedPattern] = {}
 
         handlers: dict[
             TicketsFilterRuleKind,

@@ -13,7 +13,7 @@ from src.web_admin.session import SessionManager
 
 
 def get_session_manager() -> SessionManager:
-    settings = config.app_settings.get()
+    settings = config.get_app_settings()
     return SessionManager(settings.web)
 
 

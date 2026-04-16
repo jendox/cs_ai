@@ -447,6 +447,27 @@ textarea {
   line-height: 1.45;
 }
 
+.modal-panel textarea {
+  min-height: 120px;
+}
+
+.modal-panel textarea[name="sample_text"] {
+  min-height: 180px;
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.choice-row input {
+  width: auto;
+  min-height: 0;
+}
+
 textarea[readonly],
 input[readonly] {
   color: var(--muted);
@@ -956,6 +977,10 @@ input[type="number"]::-webkit-inner-spin-button {
   grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 0.9fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(150px, 1fr) minmax(130px, 0.9fr) auto;
 }
 
+.filter-rules-form {
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.8fr) minmax(110px, 0.7fr) minmax(170px, 1.3fr) minmax(100px, 0.6fr) auto;
+}
+
 .playground-filters-form {
   grid-template-columns: minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
 }
@@ -1023,6 +1048,41 @@ input[type="number"]::-webkit-inner-spin-button {
   min-width: 1040px;
 }
 
+.filter-rules-table {
+  min-width: 980px;
+  table-layout: fixed;
+}
+
+.filter-rules-table .col-filter-rule {
+  width: 32%;
+}
+
+.filter-rules-table .col-filter-scope {
+  width: 17%;
+}
+
+.filter-rules-table .col-filter-status {
+  width: 95px;
+}
+
+.filter-rules-table .col-filter-audit {
+  width: 160px;
+  white-space: nowrap;
+}
+
+.filter-rules-table .col-filter-actions {
+  width: 150px;
+}
+
+.filter-rules-table .table-actions {
+  width: auto;
+}
+
+.rule-value {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
 .table-button {
   min-height: 34px;
   padding: 7px 12px;
@@ -1031,6 +1091,7 @@ input[type="number"]::-webkit-inner-spin-button {
 @media (max-width: 820px) {
   .filters-form,
   .tickets-filters-form,
+  .filter-rules-form,
   .playground-filters-form {
     grid-template-columns: 1fr;
   }
