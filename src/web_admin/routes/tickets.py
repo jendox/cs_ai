@@ -160,8 +160,8 @@ def _parse_brand(value: str | None) -> Brand | None:
     if not value:
         return None
     try:
-        return config.get_app_settings().brand.brand_for_id(int(value))
-    except (TypeError, ValueError):
+        return Brand(value)
+    except ValueError:
         return None
 
 
