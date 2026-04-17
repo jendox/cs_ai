@@ -19,6 +19,7 @@ def _format_channel(channel: PostChannel) -> str:
     return {
         PostChannel.INTERNAL: "internal (внутренние комментарии)",
         PostChannel.PUBLIC: "public (публичные комментарии)",
+        PostChannel.OFF: "off (генерация без публикации в Zendesk)",
     }[channel]
 
 
@@ -32,7 +33,7 @@ async def cmd_zendesk_mode(message: Message) -> None:
             "ℹ️ Текущий режим комментариев в Zendesk:\n\n"
             f"<b>review_mode</b>: <code>{channel.value}</code>\n"
             f"{_format_channel(channel)}\n\n"
-            "Изменить: <code>/zendesk_mode_set internal</code> или <code>/zendesk_mode_set public</code>",
+            "Изменить: <code>/zendesk_mode_set internal|public|off</code>",
         )
 
 
@@ -44,19 +45,19 @@ async def cmd_zendesk_mode_set(message: Message) -> None:
         if len(parts) < TWO_PARAMS_PARTS_COUNT:
             await message.answer(
                 "Использование:\n"
-                "<code>/zendesk_mode_set &lt;internal|public&gt;</code>",
+                "<code>/zendesk_mode_set &lt;internal|public|off&gt;</code>",
             )
             return
 
         raw_mode = parts[1].strip().lower()
-        if raw_mode not in {"internal", "public"}:
+        try:
+            new_channel = PostChannel(raw_mode)
+        except ValueError:
             await message.answer(
                 "Неизвестный режим.\n"
-                "Допустимые значения: <code>internal</code>, <code>public</code>",
+                "Допустимые значения: <code>internal</code>, <code>public</code>, <code>off</code>",
             )
             return
-
-        new_channel = PostChannel(raw_mode)
         updated_by = (message.from_user.username or str(message.from_user.id)) if message.from_user else ""
 
         try:

@@ -26,6 +26,8 @@ class ReplyPostingContext:
     channel: PostChannel
     prompt_key: str
     iteration_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
 
 
 class ReplyPostingService:
@@ -52,6 +54,8 @@ class ReplyPostingService:
                     channel=context.channel,
                     prompt_key=context.prompt_key,
                     iteration_id=context.iteration_id,
+                    provider=context.provider,
+                    model=context.model,
                 ),
             )
             self._logger.info("reply_attempt.empty", extra={"attempt_id": empty_attempt.id})
@@ -68,6 +72,8 @@ class ReplyPostingService:
                 body=reply,
                 prompt_key=context.prompt_key,
                 iteration_id=context.iteration_id,
+                provider=context.provider,
+                model=context.model,
             ),
         )
         self._logger.info("reply_attempt.generated", extra={"attempt_id": attempt.id})
@@ -76,6 +82,11 @@ class ReplyPostingService:
         if not saved:
             await self._reply_attempts_repo.mark_skipped_duplicate(attempt.id)
             self._logger.info("reply_attempt.duplicate", extra={"attempt_id": attempt.id})
+            return True
+
+        if context.channel == PostChannel.OFF:
+            await self._reply_attempts_repo.mark_posted(attempt.id, zendesk_comment_id=None)
+            self._logger.info("reply_attempt.posted_off", extra={"attempt_id": attempt.id})
             return True
 
         post_result = await self._post_comment(

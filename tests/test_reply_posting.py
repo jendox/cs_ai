@@ -87,6 +87,39 @@ async def test_post_reply_success_marks_posted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_reply_off_channel_marks_posted_without_zendesk_call() -> None:
+    zendesk = AsyncMock()
+    attempts = AsyncMock()
+    attempts.create_generated = AsyncMock(return_value=SimpleNamespace(id=42))
+    our_posts = AsyncMock()
+    our_posts.record_our_post = AsyncMock(return_value=True)
+    svc = ReplyPostingService(
+        zendesk_client=zendesk,
+        logger=logging.getLogger("test.reply"),
+        our_posts_repo=our_posts,
+        reply_attempts_repo=attempts,
+    )
+    ctx = ReplyPostingContext(
+        ticket_id=10,
+        brand_id=99,
+        job_type="initial_reply",
+        channel=PostChannel.OFF,
+        prompt_key="initial_reply",
+        iteration_id="abc",
+        provider="gemini",
+        model="gemini-2.5-flash",
+    )
+    ok = await svc.post_reply(ctx, "hello")
+    assert ok is True
+    zendesk.add_comment.assert_not_called()
+    attempts.mark_posted.assert_awaited_once_with(42, zendesk_comment_id=None)
+
+    created = attempts.create_generated.await_args.args[0]
+    assert created.provider == "gemini"
+    assert created.model == "gemini-2.5-flash"
+
+
+@pytest.mark.asyncio
 async def test_post_reply_zendesk_failure_deletes_our_post_and_marks_failed() -> None:
     request = httpx.Request("POST", "https://example.test/zendesk")
     zendesk = AsyncMock()

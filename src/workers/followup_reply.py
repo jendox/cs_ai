@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
-from src.ai.reply_generator import LLMReplyGenerator
+from src.ai.reply_generator import LLMReplyGenerator, ReplyGenerationResult
 from src.brands import Brand
 from src.db import session_local
 from src.db.models import LLMPromptKey
@@ -107,7 +107,7 @@ class FollowUpReplyWorker(Service):
                         return True
 
                     channel = await zendesk_repo.get_channel()
-                    reply = await self._generate_followup_reply(session, ticket_id, events_repo)
+                    generation = await self._generate_followup_reply(session, ticket_id, events_repo)
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket_id,
@@ -116,8 +116,10 @@ class FollowUpReplyWorker(Service):
                             channel=channel,
                             prompt_key=LLMPromptKey.FOLLOWUP_REPLY.value,
                             iteration_id=iteration_id,
+                            provider=generation.provider,
+                            model=generation.model,
                         ),
-                        reply=reply,
+                        reply=generation.text,
                     )
 
     def _parse_message(self, payload: dict) -> UserReplyMessage | None:
@@ -151,26 +153,25 @@ class FollowUpReplyWorker(Service):
         session: AsyncSession,
         ticket_id: int,
         events_repo: EventsRepository,
-    ) -> str:
+    ) -> ReplyGenerationResult:
         try:
             messages = await self._build_conversation_messages(session, ticket_id, events_repo)
             if not messages:
                 self.logger.warning("conversation.empty")
-                return ""
+                return ReplyGenerationResult(text="", provider=None, model=None)
 
             system_prompt = await self._llm_context.prompt_storage.followup_reply_prompt(self.brand, self._brand_id)
-            reply = await self._reply_generator.generate(
+            result = await self._reply_generator.generate_with_meta(
                 messages=messages,
                 system_prompt=system_prompt,
                 brand=self.brand,
             )
-            if not reply:
-                # Пустой ответ — странно; можно вернуть False для retry или True, чтобы не зациклиться.
+            if not result.text:
                 self.logger.warning("ai.empty_body")
-            return reply
+            return result
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"error": str(exc)})
-            return ""
+            return ReplyGenerationResult(text="", provider=None, model=None)
 
     async def _build_conversation_messages(
         self,

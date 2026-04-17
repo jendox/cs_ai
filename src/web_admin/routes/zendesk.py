@@ -58,13 +58,14 @@ async def set_zendesk_mode(
     user: Annotated[AdminUserEntity, Depends(require_role(UserRole.ADMIN))],
     _: Annotated[None, Depends(require_csrf)],
 ) -> Response:
-    if mode not in {"internal", "public"}:
+    try:
+        channel = PostChannel(mode)
+    except ValueError:
         return RedirectResponse(
             url="/admin/zendesk/mode?error=invalid_mode",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    channel = PostChannel(mode)
     async with ZendeskAdminService() as service:
         await service.set_mode(channel, updated_by=user.username)
 

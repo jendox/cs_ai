@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from src.ai import utils
@@ -9,6 +10,13 @@ from src.ai.context import LLMCallContext, LLMContext, llm_call_ctx
 from src.ai.llm_clients import LLMClientInterface
 from src.ai.tools import amazon_tools
 from src.brands import Brand
+
+
+@dataclass(frozen=True)
+class ReplyGenerationResult:
+    text: str
+    provider: str | None
+    model: str | None
 
 
 @asynccontextmanager
@@ -54,8 +62,18 @@ class LLMReplyGenerator:
         system_prompt: LLMPrompt,
         brand: Brand,
     ) -> str:
+        result = await self.generate_with_meta(messages, system_prompt, brand)
+        return result.text
+
+    async def generate_with_meta(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: LLMPrompt,
+        brand: Brand,
+    ) -> ReplyGenerationResult:
         async with llm_call_context(brand):
             settings = await self._response_settings()
             client, cfg = utils.resolve_llm_client_and_cfg(self._llm_context, settings)
-
-            return await self._make_llm_request(client, cfg, messages, system_prompt)
+            text = await self._make_llm_request(client, cfg, messages, system_prompt)
+            provider = cfg.provider.value if cfg.provider else None
+            return ReplyGenerationResult(text=text, provider=provider, model=cfg.model)

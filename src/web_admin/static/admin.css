@@ -309,6 +309,11 @@ h2 {
   color: var(--danger);
 }
 
+.status-pill.off {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
 .status-pill.classification-customer {
   background: var(--ok-bg);
   color: var(--accent-strong);

@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.context import LLMContext
-from src.ai.reply_generator import LLMReplyGenerator
+from src.ai.reply_generator import LLMReplyGenerator, ReplyGenerationResult
 from src.brands import Brand
 from src.db import session_local
 from src.db.models import LLMPromptKey
@@ -81,7 +81,7 @@ class InitialReplyWorker(Service):
                         return await self._mark_unobserved(tickets_repo, ticket)
 
                     channel = await zendesk_repo.get_channel()
-                    reply = await self._generate_initial_reply(ticket)
+                    generation = await self._generate_initial_reply(ticket)
                     return await reply_posting_service.post_reply(
                         context=ReplyPostingContext(
                             ticket_id=ticket.id,
@@ -90,8 +90,10 @@ class InitialReplyWorker(Service):
                             channel=channel,
                             prompt_key=LLMPromptKey.INITIAL_REPLY.value,
                             iteration_id=iteration_id,
+                            provider=generation.provider,
+                            model=generation.model,
                         ),
-                        reply=reply,
+                        reply=generation.text,
                     )
 
     def _parse_message(self, payload: dict) -> InitialReplyMessage | None:
@@ -146,21 +148,21 @@ class InitialReplyWorker(Service):
             self.logger.warning("ticket.update_observing_failed", extra={"ticket_id": ticket.id, "error": str(exc)})
             return False
 
-    async def _generate_initial_reply(self, ticket: Ticket) -> str:
+    async def _generate_initial_reply(self, ticket: Ticket) -> ReplyGenerationResult:
         try:
             content = self._build_initial_reply_message(ticket)
             system_prompt = await self._llm_context.prompt_storage.initial_reply_prompt(self.brand, self._brand_id)
-            reply = await self._reply_generator.generate(
+            result = await self._reply_generator.generate_with_meta(
                 messages=[{"role": "user", "content": content}],
                 system_prompt=system_prompt,
                 brand=self.brand,
             )
-            if not reply:
+            if not result.text:
                 self.logger.warning("ai.empty_body")
-            return reply
+            return result
         except Exception as exc:
             self.logger.warning("ai.generate_failed", extra={"error": str(exc)})
-            return ""
+            return ReplyGenerationResult(text="", provider=None, model=None)
 
     @staticmethod
     def _build_initial_reply_message(ticket: Ticket) -> str:

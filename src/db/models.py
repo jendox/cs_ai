@@ -92,6 +92,7 @@ class Event(Base):
 class PostChannel(StrEnum):
     INTERNAL = "internal"
     PUBLIC = "public"
+    OFF = "off"
 
 
 post_channel_enum = ENUM(PostChannel, name="post_channel_enum")

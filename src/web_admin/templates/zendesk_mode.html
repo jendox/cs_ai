@@ -21,9 +21,12 @@
       {% if channel.value == "internal" %}
         <strong>Internal notes</strong>
         <span>AI replies are posted as private notes for review.</span>
-      {% else %}
+      {% elif channel.value == "public" %}
         <strong>Public comments</strong>
         <span>AI replies are visible to customers.</span>
+      {% else %}
+        <strong>Off</strong>
+        <span>AI replies are generated and saved, but not posted to Zendesk.</span>
       {% endif %}
     </div>
   </section>
@@ -38,6 +41,14 @@
 
     <form class="form" method="post" action="/admin/zendesk/mode">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <label class="radio-row">
+        <input type="radio" name="mode" value="off" {% if channel.value == "off" %}checked{% endif %}>
+        <span>
+          <strong>Off</strong>
+          <small>Generate and record replies in the admin, but don't post them to Zendesk.</small>
+        </span>
+      </label>
 
       <label class="radio-row">
         <input type="radio" name="mode" value="internal" {% if channel.value == "internal" %}checked{% endif %}>
