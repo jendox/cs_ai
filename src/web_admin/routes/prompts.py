@@ -48,11 +48,11 @@ def _brand_or_none(value: str | int | None) -> Brand | None:
     if value in {None, ""}:
         return None
     try:
-        settings = config.get_app_settings()
-        brand = settings.brand.brand_for_id(int(value))
-    except (TypeError, ValueError):
+        brand = Brand(value)
+    except ValueError:
         return None
-    return brand if brand in settings.brand.supported else None
+    supported = config.get_app_settings().brand.supported
+    return brand if brand in supported else None
 
 
 def _key_or_none(value: str | None) -> LLMPromptKey | None:
@@ -71,8 +71,7 @@ def _prompt_url(
     saved: bool = False,
     error: str | None = None,
 ) -> str:
-    brand_id = config.get_app_settings().brand.id_for(brand)
-    url = f"/admin/prompts?brand={brand_id}&key={key.value}"
+    url = f"/admin/prompts?brand={brand.value}&key={key.value}"
     if saved:
         return f"{url}&saved=1"
     if error:
