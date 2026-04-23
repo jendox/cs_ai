@@ -44,22 +44,70 @@ This project addresses that with an event-driven pipeline:
   - web-admin user management.
 - Structured JSON logging with context and secret redaction.
 
-## Architecture Overview
+## Architecture
 
-Main runtime services:
+High-level components and data flow (main app from `run.py` / `src/app.py`; Web Admin is a **separate process** via `run_web.py`):
+
+```mermaid
+flowchart TB
+  subgraph users[Users]
+    admin[Admin]
+    zusers[Customer / support staff on Zendesk]
+  end
+
+  zapi[Zendesk API]
+  tgapi[Telegram Bot API]
+
+  zusers <--> zapi
+  admin <--> tgapi
+  admin --> web[Web Admin: run_web + src.web_admin]
+  tgram[Telegram admin: src.telegram + aiogram]
+  tgapi <--> tgram
+
+  subgraph proc[Processes]
+    poller[Poller: src.zendesk.poller]
+    winit[InitialReplyWorker: src.workers.initial_reply]
+    wfol[FollowUpReplyWorker: src.workers.followup_reply]
+    wcls[TicketClosedWorker: src.workers.ticket_closed]
+  end
+
+  zapi <--> poller
+  zapi <--> winit
+  zapi <--> wfol
+  zapi <--> wcls
+
+  llm[Google Gemini + Amazon MCP]
+  winit <--> llm
+  wfol <--> llm
+
+  rmq[("RabbitMQ")]
+  poller <--> rmq
+  winit <--> rmq
+  wfol <--> rmq
+  wcls <--> rmq
+
+  pg[("PostgreSQL")]
+  poller <--> pg
+  winit <--> pg
+  wfol <--> pg
+  wcls <--> pg
+  web <--> pg
+  tgram <-.-> pg
+```
+
+- **Dotted** `Telegram admin ↔ PostgreSQL`: the admin bot is implemented under `src/telegram` (aiogram) but is **not** started in the default `app()` (see commented `TelegramAdmin` in `src/app.py`); when you enable it, it uses the same database as the rest of the app.
+- **Web Admin** serves the browser UI; it uses PostgreSQL directly (not the Zendesk API for HTML). List/detail actions can call Zendesk from the server where needed. **Playground** in Web Admin reuses the same **Gemini + MCP** settings as production reply generation.
+
+Brief list of what runs where:
+
 - `Poller` (per brand)
 - `InitialReplyWorker` (per brand)
 - `FollowUpReplyWorker` (per brand)
 - `TicketClosedWorker` (per brand)
-- `TelegramAdmin`
-- `WebAdmin` (standalone FastAPI entrypoint)
+- `TelegramAdmin` (optional; see note above)
+- `WebAdmin` (standalone FastAPI entrypoint, `run_web.py`)
 
-Core dependencies:
-- PostgreSQL for state/configuration.
-- RabbitMQ for async jobs/retries.
-- Zendesk API for tickets/comments.
-- Amazon MCP server for tool calls used by LLM context.
-- Google Gemini client (currently active provider).
+**Core dependencies:** PostgreSQL (state and configuration), RabbitMQ (async jobs, retries, DLQ), Zendesk API (tickets and comments), Amazon MCP (tools for LLM context), Google Gemini (active LLM provider).
 
 ## End-to-End Flow
 
