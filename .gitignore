@@ -17,3 +17,4 @@ test.py
 .env.dev
 .env.prod
 upgrade_plan.txt
+.cursor/
