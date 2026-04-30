@@ -6,7 +6,7 @@ PROD_COMPOSE_FILE ?= deploy/docker-compose.prod.yml
 PROD_ENV_FILE ?= deploy/.env.prod
 
 # Docker Hub image coordinates for the CS app (override via env or make CS_IMAGE=...)
-CS_IMAGE ?= yourdockerhub/cs-app
+CS_IMAGE ?= jendox/cs-app
 CS_TAG ?= latest
 
 # Ruff
