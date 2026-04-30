@@ -2,7 +2,7 @@ from enum import StrEnum
 from typing import Any
 
 from src.logs.filters import ContextFilter, DedupFilter, RedactFilter
-from src.logs.formatters import JsonFormatter
+from src.logs.formatters import JsonFormatter, TelegramFormatter
 
 __all__ = (
     "LogEnvironment",
@@ -36,6 +36,7 @@ def build_logging_config(
         handlers["telegram"] = {
             "()": lambda: telegram_handler,
             "level": "ERROR",
+            "formatter": "telegram",
             "filters": ["ctx", "redact"],
         }
     return {
@@ -49,6 +50,7 @@ def build_logging_config(
         "formatters": {
             "console": {"format": console_formatter["format"]},
             "json": {"()": JsonFormatter},
+            "telegram": {"()": TelegramFormatter},
         },
         "handlers": handlers,
         "root": {

@@ -1,5 +1,6 @@
 import json
 import logging
+from hashlib import sha1
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -214,6 +215,82 @@ class RabbitJobQueue:
             },
         )
         return False
+
+    @staticmethod
+    def _compact_json(value: object, *, limit: int = 1200) -> str:
+        try:
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            text = str(value)
+        if len(text) > limit:
+            return f"{text[: limit - 1]}…"
+        return text
+
+    @classmethod
+    def _describe_payload(cls, payload: dict) -> dict:
+        ticket = payload.get("ticket")
+        ticket_id = payload.get("ticket_id")
+        ticket_preview = None
+        if isinstance(ticket, dict):
+            ticket_id = ticket_id or ticket.get("id")
+            ticket_preview = {
+                "id": ticket.get("id"),
+                "status": ticket.get("status"),
+                "priority": ticket.get("priority"),
+                "updated_at": ticket.get("updated_at"),
+                "created_at": ticket.get("created_at"),
+            }
+
+        summary = {
+            "ticket_id": ticket_id,
+            "source_id": payload.get("source_id"),
+            "dedup_key": payload.get("dedup_key"),
+            "created_at": payload.get("created_at"),
+            "payload_keys": sorted(payload.keys()),
+        }
+        if ticket_preview:
+            summary["ticket"] = ticket_preview
+
+        return {
+            key: value
+            for key, value in summary.items()
+            if value is not None
+        }
+
+    @classmethod
+    def _build_dead_log_extra(
+        cls,
+        *,
+        job_type: JobType,
+        message: AbstractIncomingMessage,
+        headers: dict,
+        payload: dict | None = None,
+        parse_error: bool = False,
+    ) -> dict:
+        body_text = message.body.decode("utf-8", errors="replace")
+        body_hash = sha1(message.body).hexdigest()
+        brand = headers.get("brand")
+        attempt = int(headers.get("attempt", 0))
+
+        extra = {
+            "job_type": job_type.value,
+            "brand": brand,
+            "attempt": attempt,
+            "correlation_id": message.correlation_id,
+            "routing_key": f"{job_type.value}.{brand or 'unknown'}.dead",
+            "message_body_sha1": body_hash,
+            "message_body_size": len(message.body),
+            "headers": dict(sorted(headers.items())),
+        }
+
+        if parse_error:
+            extra["body_preview"] = body_text[:500]
+        elif payload is not None:
+            payload_summary = cls._describe_payload(payload)
+            extra["payload"] = payload_summary
+            extra["payload_preview"] = cls._compact_json(payload_summary)
+
+        return extra
 
     async def consume(
         self,
@@ -560,9 +637,15 @@ class RabbitJobQueue:
             payload = json.loads(message.body.decode())
         except Exception:
             # Unparseable messages are immediately dead-lettered (no retries).
+            dead_extra = self._build_dead_log_extra(
+                job_type=job_type,
+                message=message,
+                headers=headers | {"parse_error": True},
+                parse_error=True,
+            )
             await self._send_to_dead(job_type, message, headers | {"parse_error": True})
             await message.ack()
-            self.logger.error("msg.dead.unparseable", extra=extra)
+            self.logger.error("msg.dead.unparseable", extra={**extra, **dead_extra})
             return
 
         attempt = attempt_header
@@ -589,9 +672,15 @@ class RabbitJobQueue:
 
         if attempt > len(RETRY_DELAYS):
             # Retry limit reached → send to dead queue and ACK original.
+            dead_extra = self._build_dead_log_extra(
+                job_type=job_type,
+                message=message,
+                headers=headers,
+                payload=payload,
+            )
             await self._send_to_dead(job_type, message, headers)
             await message.ack()
-            self.logger.error("msg.dead", extra={**extra, "attempt": attempt})
+            self.logger.error("msg.dead", extra={**extra, **dead_extra})
         else:
             # Schedule retry via DLX and ACK original.
             await self._nack_to_retry(job_type, attempt, message, headers)
