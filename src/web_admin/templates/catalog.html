@@ -277,6 +277,7 @@
     const note = document.getElementById("catalog-sync-note");
     let pollTimer;
     let reloadScheduled = false;
+    let sawRunningSync = false;
 
     const statusClass = (status) => {
       if (status === "completed") return "internal";
@@ -301,7 +302,7 @@
       }).join("");
     };
 
-    const updateSyncUi = (sync) => {
+    const updateSyncUi = (sync, { fromPoll = false } = {}) => {
       if (!sync) {
         return;
       }
@@ -328,6 +329,7 @@
       });
 
       if (sync.status === "running") {
+        sawRunningSync = true;
         note.hidden = true;
         return;
       }
@@ -341,12 +343,13 @@
           : "Catalog sync finished with errors.";
       }
 
-      if (!reloadScheduled) {
+      if (fromPoll && sawRunningSync && !reloadScheduled) {
         reloadScheduled = true;
         window.setTimeout(() => {
           const url = new URL(window.location.href);
           url.searchParams.delete("saved");
           url.searchParams.delete("error");
+          url.searchParams.delete("sync_marketplace");
           window.location.replace(url.toString());
         }, 1200);
       }
@@ -362,12 +365,14 @@
           return;
         }
         const payload = await response.json();
-        updateSyncUi(payload.sync);
+        updateSyncUi(payload.sync, { fromPoll: true });
         if (payload.sync && payload.sync.status === "running") {
           pollTimer = window.setTimeout(pollSyncStatus, 2000);
         }
       } catch (_error) {
-        pollTimer = window.setTimeout(pollSyncStatus, 4000);
+        if (sawRunningSync) {
+          pollTimer = window.setTimeout(pollSyncStatus, 4000);
+        }
       }
     };
 
@@ -375,6 +380,7 @@
     if (initialSync) {
       updateSyncUi(initialSync);
       if (initialSync.status === "running") {
+        sawRunningSync = true;
         pollSyncStatus();
       }
     }

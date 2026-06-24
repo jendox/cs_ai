@@ -91,6 +91,10 @@ class CatalogSyncManager:
     def get_state(self, brand: Brand) -> CatalogSyncRunState | None:
         return self._states.get(brand.value)
 
+    def clear_state(self, brand: Brand) -> None:
+        self._states.pop(brand.value, None)
+        self._tasks.pop(brand.value, None)
+
     def is_running(self, brand: Brand) -> bool:
         state = self.get_state(brand)
         return state is not None and state.status == "running"

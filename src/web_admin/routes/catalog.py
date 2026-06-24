@@ -293,6 +293,9 @@ async def get_catalog(  # noqa: PLR0913, PLR0914, PLR0917
         ),
     )
     sync_state = catalog_sync_manager.get_state(selected_brand)
+    sync_state_payload = sync_state.to_dict() if sync_state else None
+    if sync_state is not None and sync_state.status != "running":
+        catalog_sync_manager.clear_state(selected_brand)
     flash_marketplace = _parse_marketplace(sync_marketplace) if sync_marketplace else None
     csrf = session_manager.prepare_csrf(request)
     response = templates.TemplateResponse(
@@ -308,7 +311,7 @@ async def get_catalog(  # noqa: PLR0913, PLR0914, PLR0917
                 marketplace_label=_marketplace_label(flash_marketplace) if flash_marketplace else None,
             ),
             "can_sync": user.role.level >= UserRole.SUPERADMIN.level,
-            "sync_state": sync_state.to_dict() if sync_state else None,
+            "sync_state": sync_state_payload,
             "brands": settings.brand.supported,
             "marketplaces": EU_MARKETPLACES,
             "marketplace_tabs": _build_tabs(
