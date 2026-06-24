@@ -18,3 +18,5 @@ test.py
 .env.prod
 upgrade_plan.txt
 .cursor/
+.codex/
+.agents/
