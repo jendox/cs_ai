@@ -14,6 +14,7 @@ from src.ai.llm_clients.pool import LLMClientPool
 from src.config import AppSettings
 from src.db.sa import Database
 from src.web_admin.bootstrap import bootstrap_superadmin
+from src.web_admin.catalog_sync_manager import CatalogSyncManager
 from src.web_admin.routes import router
 from src.web_admin.templates import WEB_ADMIN_DIR, templates
 
@@ -53,6 +54,7 @@ def create_app(settings: AppSettings) -> FastAPI:
                 prompt_storage=LLMPromptStorage(),
                 amazon_mcp_client=amazon_mcp_client,
             )
+            app_.state.catalog_sync_manager = CatalogSyncManager()
             await bootstrap_superadmin(settings.web)
             yield
 

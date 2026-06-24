@@ -13,6 +13,13 @@ from .llm_playground import (
     LLMPlaygroundTicketNotFound,
 )
 from .locks import AcquireLockError, LocksRepository
+from .merchant_listing import (
+    MerchantListingFilters,
+    MerchantListingListResult,
+    MerchantListingMarketplaceSummary,
+    MerchantListingNotExists,
+    MerchantListingRepository,
+)
 from .our_posts import OurPostsRepository
 from .reply_attempts import (
     ReplyAttemptCreate,
@@ -46,6 +53,11 @@ __all__ = [
     "TicketsFilterRuleNotFound",
     "AcquireLockError",
     "LocksRepository",
+    "MerchantListingFilters",
+    "MerchantListingListResult",
+    "MerchantListingMarketplaceSummary",
+    "MerchantListingNotExists",
+    "MerchantListingRepository",
     "LLMPlaygroundFilters",
     "LLMPlaygroundMessageCreate",
     "LLMPlaygroundRepository",

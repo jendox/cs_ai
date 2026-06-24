@@ -30,6 +30,11 @@
           Replies
         </a>
         {% if current_user and current_user.role.level >= 2 %}
+          <a class="nav-link {% if active_page == 'catalog' %}is-active{% endif %}" href="/admin/catalog">
+            Catalog
+          </a>
+        {% endif %}
+        {% if current_user and current_user.role.level >= 2 %}
           <a class="nav-link {% if active_page == 'playground' %}is-active{% endif %}" href="/admin/playground">
             Playground
           </a>

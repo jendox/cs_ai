@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+
+{% block title %}Catalog · CS Admin{% endblock %}
+{% block kicker %}Reference Data{% endblock %}
+{% block page_title %}Catalog{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Merchant Listings</h2>
+      <p>Review synced Amazon catalog records by brand and EU marketplace.</p>
+    </div>
+    {% if can_sync %}
+      <form method="post" action="/admin/catalog/sync" id="catalog-sync-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="brand" value="{{ selected_brand }}">
+        <input type="hidden" name="marketplace" value="{{ selected_marketplace }}">
+        <input type="hidden" name="search" value="{{ selected_search }}">
+        <input type="hidden" name="limit" value="{{ limit }}">
+        <button
+          class="button button-primary"
+          type="submit"
+          id="catalog-sync-button"
+          {% if sync_state and sync_state.status == "running" %}disabled{% endif %}
+        >
+          Sync All EU
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div
+    class="catalog-sync-panel"
+    id="catalog-sync-panel"
+    data-brand="{{ selected_brand }}"
+    {% if not sync_state %}hidden{% endif %}
+  >
+    <div class="catalog-sync-panel-header">
+      <div>
+        <strong id="catalog-sync-title">Catalog sync</strong>
+        <p id="catalog-sync-summary">
+          {% if sync_state %}
+            {{ sync_state.completed_count }} / {{ sync_state.total_count }} marketplaces processed
+          {% else %}
+            Waiting for sync status…
+          {% endif %}
+        </p>
+      </div>
+      <span class="status-pill catalog-sync-status-pill" id="catalog-sync-status-pill">
+        {{ sync_state.status if sync_state else "running" }}
+      </span>
+    </div>
+    <div class="catalog-sync-progress">
+      <div class="catalog-sync-progress-bar" id="catalog-sync-progress-bar"></div>
+    </div>
+    <div class="catalog-sync-markets" id="catalog-sync-markets">
+      {% if sync_state %}
+        {% for item in sync_state.marketplaces %}
+          <div class="catalog-sync-market" data-market-status="{{ item.status }}">
+            <span class="catalog-sync-market-label">{{ item.label }}</span>
+            <span class="status-pill catalog-sync-market-pill">{{ item.status }}</span>
+            {% if item.row_count is not none %}
+              <small>{{ item.row_count }} listings</small>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+    <p class="catalog-sync-note" id="catalog-sync-note" {% if not sync_state or sync_state.status == "running" %}hidden{% endif %}></p>
+  </div>
+
+  <div class="catalog-tabs">
+    {% for tab in marketplace_tabs %}
+      <div class="catalog-tab-card {% if tab.is_active %}is-active{% endif %}">
+        <a class="catalog-tab-link" href="{{ tab.url }}">
+          <strong>{{ tab.label }}</strong>
+          <span>{{ tab.total }} listings</span>
+          <small>Updated {{ format_datetime(tab.updated_at) }}</small>
+        </a>
+        {% if can_sync and tab.sync_marketplace %}
+          <form
+            method="post"
+            action="/admin/catalog/sync"
+            class="catalog-tab-sync-form"
+            data-catalog-tab-sync-form
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="brand" value="{{ selected_brand }}">
+            <input type="hidden" name="marketplace" value="{{ selected_marketplace }}">
+            <input type="hidden" name="sync_marketplace" value="{{ tab.sync_marketplace }}">
+            <input type="hidden" name="search" value="{{ selected_search }}">
+            <input type="hidden" name="limit" value="{{ limit }}">
+            <button
+              class="icon-button icon-button-primary catalog-tab-sync-button"
+              type="submit"
+              title="Sync {{ tab.label }}"
+              aria-label="Sync {{ tab.label }}"
+              {% if sync_state and sync_state.status == "running" %}disabled{% endif %}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M21 12a9 9 0 0 1-15.2 6.5"></path>
+                <path d="M3 12A9 9 0 0 1 18.2 5.5"></path>
+                <path d="M18 2v4h-4"></path>
+                <path d="M6 22v-4h4"></path>
+              </svg>
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <form class="form filters-form catalog-filters-form" method="get" action="/admin/catalog" data-auto-filter-form>
+    <label class="field">
+      <span>Brand</span>
+      <select name="brand">
+        {% for item in brands %}
+          <option value="{{ item.value }}" {% if selected_brand == item.value|string %}selected{% endif %}>
+            {{ item.short }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Marketplace</span>
+      <select name="marketplace">
+        <option value="">All EU</option>
+        {% for item in marketplaces %}
+          <option value="{{ item.value }}" {% if selected_marketplace == item.value|string %}selected{% endif %}>
+            {{ marketplace_label(item) }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Search</span>
+      <input name="search" type="text" value="{{ selected_search }}" placeholder="ASIN, SKU, product name" data-catalog-search>
+    </label>
+
+    <label class="field">
+      <span>Per Page</span>
+      <select name="limit">
+        {% for item in limit_options %}
+          <option value="{{ item }}" {% if limit == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <input type="hidden" name="offset" value="0">
+
+    <a class="button button-secondary filter-reset-button" href="/admin/catalog" title="Reset filters" aria-label="Reset filters">
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4 7h10a6 6 0 1 1-5.2 9"></path>
+        <path d="M4 7l4-4"></path>
+        <path d="M4 7l4 4"></path>
+      </svg>
+      <span>Reset</span>
+    </a>
+  </form>
+
+  <div class="table-wrap">
+    <table class="data-table catalog-table">
+      <thead>
+        <tr>
+          <th class="col-catalog-market">Market</th>
+          <th class="col-catalog-product">Product</th>
+          <th class="col-catalog-ids">Identifiers</th>
+          <th class="col-catalog-channel">Channel</th>
+          <th class="col-catalog-updated">Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in result.items %}
+          <tr>
+            <td class="col-catalog-market">
+              <span class="status-pill internal">{{ marketplace_label(item.marketplace_id) }}</span>
+            </td>
+            <td class="col-catalog-product">
+              <strong>
+                <a class="catalog-item-link" href="{{ catalog_detail_url(item.id) }}">
+                  {{ item.item_name or "Untitled listing" }}
+                </a>
+              </strong>
+              {% if item.item_description %}
+                <small>{{ item.item_description }}</small>
+              {% endif %}
+            </td>
+            <td class="col-catalog-ids">
+              <strong>
+                <a class="catalog-item-link" href="{{ catalog_detail_url(item.id) }}">
+                  {{ item.asin }}
+                </a>
+              </strong>
+              <small>{{ item.seller_sku }}</small>
+            </td>
+            <td class="col-catalog-channel">
+              {{ item.fulfillment_channel or "-" }}
+            </td>
+            <td class="col-catalog-updated">
+              <time>{{ format_datetime(item.updated_at) }}</time>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5">No catalog listings found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    <div>
+      {% if result.total > 0 %}Showing {{ offset + 1 }}–{{ offset + result.items|length }} of {{ result.total }}{% else %}No results{% endif %}
+    </div>
+    <div class="pagination-actions">
+      {% if has_prev %}
+        <a class="button button-secondary" href="{{ prev_url }}">Previous</a>
+      {% else %}
+        <button class="button button-secondary" type="button" disabled>Previous</button>
+      {% endif %}
+
+      {% if has_next %}
+        <a class="button button-secondary" href="{{ next_url }}">Next</a>
+      {% else %}
+        <button class="button button-secondary" type="button" disabled>Next</button>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const form = document.querySelector("[data-auto-filter-form]");
+    if (form) {
+      let submitTimer;
+      const submit = () => {
+        window.clearTimeout(submitTimer);
+        form.requestSubmit();
+      };
+
+      form.querySelectorAll("select").forEach((select) => {
+        select.addEventListener("change", submit);
+      });
+
+      form.querySelectorAll("[data-catalog-search]").forEach((input) => {
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submit();
+          }
+        });
+
+        input.addEventListener("blur", () => {
+          window.clearTimeout(submitTimer);
+          submitTimer = window.setTimeout(() => {
+            form.requestSubmit();
+          }, 100);
+        });
+      });
+    }
+
+    const syncPanel = document.getElementById("catalog-sync-panel");
+    const syncButton = document.getElementById("catalog-sync-button");
+    if (!syncPanel) {
+      return;
+    }
+
+    const brand = syncPanel.dataset.brand;
+    const statusPill = document.getElementById("catalog-sync-status-pill");
+    const summary = document.getElementById("catalog-sync-summary");
+    const progressBar = document.getElementById("catalog-sync-progress-bar");
+    const marketsRoot = document.getElementById("catalog-sync-markets");
+    const note = document.getElementById("catalog-sync-note");
+    let pollTimer;
+    let reloadScheduled = false;
+
+    const statusClass = (status) => {
+      if (status === "completed") return "internal";
+      if (status === "failed") return "failed";
+      if (status === "running") return "warning";
+      if (status === "skipped") return "muted";
+      return "muted";
+    };
+
+    const renderMarkets = (marketplaces) => {
+      marketsRoot.innerHTML = marketplaces.map((item) => {
+        const parts = [
+          `<div class="catalog-sync-market" data-market-status="${item.status}">`,
+          `<span class="catalog-sync-market-label">${item.label}</span>`,
+          `<span class="status-pill catalog-sync-market-pill ${statusClass(item.status)}">${item.status}</span>`,
+        ];
+        if (item.row_count !== null && item.row_count !== undefined) {
+          parts.push(`<small>${item.row_count} listings</small>`);
+        }
+        parts.push("</div>");
+        return parts.join("");
+      }).join("");
+    };
+
+    const updateSyncUi = (sync) => {
+      if (!sync) {
+        return;
+      }
+
+      syncPanel.hidden = false;
+      const scopeLabel = sync.scope && sync.scope !== "all_eu" ? `${sync.scope} catalog sync` : "Catalog sync";
+      document.getElementById("catalog-sync-title").textContent = scopeLabel;
+      statusPill.textContent = sync.status;
+      statusPill.className = `status-pill catalog-sync-status-pill ${statusClass(sync.status)}`;
+      summary.textContent = `${sync.completed_count} / ${sync.total_count} marketplaces processed`;
+      const progress = sync.total_count > 0
+        ? Math.round((sync.completed_count / sync.total_count) * 100)
+        : 0;
+      progressBar.style.width = `${progress}%`;
+      renderMarkets(sync.marketplaces);
+
+      if (syncButton) {
+        syncButton.disabled = sync.status === "running";
+        syncButton.textContent = sync.status === "running" ? "Syncing…" : "Sync All EU";
+      }
+
+      document.querySelectorAll(".catalog-tab-sync-button").forEach((button) => {
+        button.disabled = sync.status === "running";
+      });
+
+      if (sync.status === "running") {
+        note.hidden = true;
+        return;
+      }
+
+      note.hidden = false;
+      if (sync.status === "completed") {
+        note.textContent = "Catalog sync finished successfully. Refreshing marketplace totals…";
+      } else {
+        note.textContent = sync.error
+          ? `Catalog sync finished with errors: ${sync.error}`
+          : "Catalog sync finished with errors.";
+      }
+
+      if (!reloadScheduled) {
+        reloadScheduled = true;
+        window.setTimeout(() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("saved");
+          url.searchParams.delete("error");
+          window.location.replace(url.toString());
+        }, 1200);
+      }
+    };
+
+    const pollSyncStatus = async () => {
+      try {
+        const response = await fetch(`/admin/catalog/sync/status?brand=${encodeURIComponent(brand)}`, {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        updateSyncUi(payload.sync);
+        if (payload.sync && payload.sync.status === "running") {
+          pollTimer = window.setTimeout(pollSyncStatus, 2000);
+        }
+      } catch (_error) {
+        pollTimer = window.setTimeout(pollSyncStatus, 4000);
+      }
+    };
+
+    const initialSync = {{ sync_state|tojson if sync_state else "null" }};
+    if (initialSync) {
+      updateSyncUi(initialSync);
+      if (initialSync.status === "running") {
+        pollSyncStatus();
+      }
+    }
+
+    if (syncButton) {
+      syncButton.closest("form")?.addEventListener("submit", () => {
+        syncButton.disabled = true;
+        syncButton.textContent = "Starting…";
+        syncPanel.hidden = false;
+        pollTimer = window.setTimeout(pollSyncStatus, 1000);
+      });
+    }
+
+    document.querySelectorAll("[data-catalog-tab-sync-form]").forEach((form) => {
+      form.addEventListener("submit", () => {
+        const button = form.querySelector(".catalog-tab-sync-button");
+        if (button) {
+          button.disabled = true;
+        }
+        if (syncButton) {
+          syncButton.disabled = true;
+        }
+        document.querySelectorAll(".catalog-tab-sync-button").forEach((item) => {
+          item.disabled = true;
+        });
+        syncPanel.hidden = false;
+        pollTimer = window.setTimeout(pollSyncStatus, 1000);
+      });
+    });
+  })();
+</script>
+{% endblock %}

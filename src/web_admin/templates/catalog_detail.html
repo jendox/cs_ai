@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}{{ listing.asin }} · Catalog · CS Admin{% endblock %}
+{% block kicker %}Reference Data{% endblock %}
+{% block page_title %}Catalog Listing{% endblock %}
+
+{% block content %}
+<div class="catalog-detail-stack">
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>{{ listing.item_name or "Untitled listing" }}</h2>
+        <p>Listing snapshot from local sync plus live Amazon catalog attributes.</p>
+      </div>
+      <div class="section-actions">
+        {% if amazon_listing_url %}
+          <a
+            class="icon-button"
+            href="{{ amazon_listing_url }}"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open on Amazon"
+            aria-label="Open on Amazon"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M14 4h6v6"></path>
+              <path d="M20 4l-9 9"></path>
+              <path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path>
+            </svg>
+          </a>
+        {% endif %}
+        <a class="icon-button" href="{{ return_url }}" title="Back to Catalog" aria-label="Back to Catalog">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M19 12H5"></path>
+            <path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div>
+        <span class="meta-label">Marketplace</span>
+        <strong>{{ marketplace_label(listing.marketplace_id) }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">Brand</span>
+        <strong>{{ listing.brand_id|brand_label }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">ASIN</span>
+        <strong>{{ listing.asin }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">Seller SKU</span>
+        <strong>{{ listing.seller_sku }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">Fulfillment</span>
+        <strong>{{ listing.fulfillment_channel or "-" }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">Updated</span>
+        <strong>{{ format_datetime(listing.updated_at) }}</strong>
+      </div>
+      <div>
+        <span class="meta-label">Created</span>
+        <strong>{{ format_datetime(listing.created_at) }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <div>
+        <h2>Listing Description</h2>
+        <p>Text stored locally from the GET_MERCHANT_LISTINGS_ALL_DATA report.</p>
+      </div>
+    </div>
+    {% if listing.item_description %}
+      <div class="catalog-description">{{ listing.item_description }}</div>
+    {% else %}
+      <p class="empty-state">No description stored for this listing.</p>
+    {% endif %}
+  </section>
+
+  {% if product_error %}
+    <section class="panel">
+      <div class="notice error">{{ product_error }}</div>
+    </section>
+  {% endif %}
+
+  {% for section in product_sections %}
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>{{ section.title }}</h2>
+          <p>{{ section.description }}</p>
+        </div>
+      </div>
+      {% if section.bullets %}
+        <ul class="catalog-bullets">
+          {% for bullet in section.bullets %}
+            <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      {% if section.fields %}
+        <dl class="definition-list catalog-definition-list">
+          {% for field in section.fields %}
+            <div>
+              <dt>{{ field.label }}</dt>
+              <dd class="catalog-field-value">{{ field.value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  {% if related_listings %}
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>Same ASIN in Other Marketplaces</h2>
+          <p>Other synced listings for {{ listing.asin }} under the same brand.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table catalog-related-table">
+          <thead>
+            <tr>
+              <th>Market</th>
+              <th>Seller SKU</th>
+              <th>Channel</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in related_listings %}
+              <tr>
+                <td>
+                  <a class="catalog-item-link" href="{{ catalog_detail_url(item.id) }}">
+                    {{ marketplace_label(item.marketplace_id) }}
+                  </a>
+                </td>
+                <td>{{ item.seller_sku }}</td>
+                <td>{{ item.fulfillment_channel or "-" }}</td>
+                <td>{{ format_datetime(item.updated_at) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

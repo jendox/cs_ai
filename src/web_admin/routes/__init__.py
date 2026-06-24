@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .auth import router as auth_router
+from .catalog import router as catalog_router
 from .filter_rules import router as filter_rules_router
 from .health import router as health_router
 from .llm import router as llm_router
@@ -18,6 +19,7 @@ router.include_router(health_router)
 router.include_router(zendesk_router)
 router.include_router(tickets_router)
 router.include_router(replies_router)
+router.include_router(catalog_router)
 router.include_router(playground_router)
 router.include_router(filter_rules_router)
 router.include_router(llm_router)

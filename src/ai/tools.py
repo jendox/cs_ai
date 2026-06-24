@@ -2,6 +2,12 @@ from typing import Any
 
 from src.ai.amazon_mcp_client import AmazonMCPHttpClient
 from src.ai.context import get_current_brand
+from src.config import get_app_settings
+
+
+def _current_brand_id(*, caller: str) -> int:
+    brand = get_current_brand(caller=caller)
+    return get_app_settings().brand.id_for(brand)
 
 
 async def get_order(order_id: str) -> dict[str, Any]:
@@ -489,9 +495,9 @@ async def get_product_by_text(
           context, or
         * ask the user for clarification if you cannot safely choose.
     """
-    brand = get_current_brand(caller="get_product_by_text")
+    brand_id = _current_brand_id(caller="get_product_by_text")
     client = AmazonMCPHttpClient.get_initialized_instance()
-    return await client.get_product_by_text(query, brand.value, limit)
+    return await client.get_product_by_text(query, brand_id, limit)
 
 
 async def get_product_by_asin(
@@ -620,9 +626,9 @@ async def get_product_by_asin(
     - If you do NOT have an ASIN but only free text, use `get_product_by_text`
       instead.
     """
-    brand = get_current_brand(caller="get_product_by_asin")
+    brand_id = _current_brand_id(caller="get_product_by_asin")
     client = AmazonMCPHttpClient.get_initialized_instance()
-    return await client.get_product_by_asin(asin, brand.value, limit)
+    return await client.get_product_by_asin(asin, brand_id, limit)
 
 
 async def get_products_by_order_id(
