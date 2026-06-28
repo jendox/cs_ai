@@ -11,6 +11,7 @@ rabbitmq_data/
 docker-compose.yml
 init_rabbit.sh
 pg_data/
+deploy/backups/
 rules_test.py
 actions_gold.json
 test.py

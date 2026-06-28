@@ -182,6 +182,89 @@ CS_TAG=<previous-git-sha> make prod-deploy
 `alembic downgrade` explicitly via `docker compose ... run --rm migrate \
 uv run alembic downgrade -1`.)
 
+### 5.6) PostgreSQL backups
+
+Postgres runs as the `postgres` service from `docker-compose.prod.yml` and stores
+data in the Docker volume `pg_data_prod`. To create logical backups, use:
+
+```bash
+cd /path/to/deploy
+./backup_postgres.sh
+```
+
+The script runs `pg_dump` inside the existing Postgres container and writes a
+custom-format dump to `POSTGRES_BACKUP_DIR` (`./backups/postgres` by default).
+It also deletes old `cs_postgres_*.dump` files older than
+`POSTGRES_BACKUP_RETENTION_DAYS` days (`14` by default). On the VPS, prefer an
+absolute backup path in `deploy/.env.prod`, for example:
+
+```bash
+POSTGRES_BACKUP_DIR=/var/backups/cs/postgres
+POSTGRES_BACKUP_RETENTION_DAYS=14
+```
+
+Make the script executable after copying it to the server:
+
+```bash
+chmod +x /path/to/deploy/backup_postgres.sh
+```
+
+Manual restore example:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres \
+  sh -ec 'pg_restore --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < /var/backups/cs/postgres/cs_postgres_YYYYMMDDTHHMMSSZ.dump
+```
+
+For regular backups via cron, open the root crontab on the VPS:
+
+```bash
+sudo crontab -e
+```
+
+Run a backup every day at 03:15 server time:
+
+```cron
+15 3 * * * /path/to/deploy/backup_postgres.sh >> /var/log/cs-postgres-backup.log 2>&1
+```
+
+If the server uses systemd timers instead of cron, create
+`/etc/systemd/system/cs-postgres-backup.service`:
+
+```ini
+[Unit]
+Description=CS PostgreSQL backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/deploy
+ExecStart=/path/to/deploy/backup_postgres.sh
+```
+
+And `/etc/systemd/system/cs-postgres-backup.timer`:
+
+```ini
+[Unit]
+Description=Run CS PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=cs-postgres-backup.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable the timer:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now cs-postgres-backup.timer
+systemctl list-timers cs-postgres-backup.timer
+```
+
 ## 6) Notes
 
 - In compose files, internal hostnames are fixed by service names:
